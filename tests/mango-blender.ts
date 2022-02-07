@@ -19,6 +19,9 @@ describe("mango-blender", () => {
   let poolAddress: PublicKey;
   let poolBump: number;
 
+  let mangoAccountAddress: PublicKey;
+  let mangoAccountBump: number;
+
   let mangoGroupPubkey: PublicKey;
   let client: MangoClient;
 
@@ -41,13 +44,22 @@ describe("mango-blender", () => {
 
     mangoGroupPubkey = await createMangoGroup(provider, payer);
     client = new MangoClient(provider.connection, MANGO_PROG_ID);
+
+    [mangoAccountAddress, mangoAccountBump] = await PublicKey.findProgramAddress(
+      [mangoGroupPubkey.toBytes(), poolAddress.toBytes(), new anchor.BN(1).toArrayLike(Buffer, "le", 8)],
+      MANGO_PROG_ID
+    );
   });
 
-  it("can create a liquidator pool", async () => {
-    const tx = await program.rpc.createPool(poolBump, {
+  it("can create a liquidator pool, which includes a delegated mangoAccount for liqor", async () => {
+    const accountNum = new anchor.BN(1)
+    const tx = await program.rpc.createPool(poolBump, accountNum, {
       accounts: {
         pool: poolAddress,
         admin: provider.wallet.publicKey,
+        mangoProgram: MANGO_PROG_ID,
+        mangoGroup: mangoGroupPubkey,
+        mangoAccount: mangoAccountAddress,
         systemProgram: SystemProgram.programId,
       },
       signers: [payer],
@@ -57,25 +69,11 @@ describe("mango-blender", () => {
     assert.ok(
       initializedPool.admin.toBase58() === provider.wallet.publicKey.toBase58()
     );
+
+    const mangoAccount = await client.getMangoAccount(mangoAccountAddress, MANGO_PROG_ID);
+    assert.ok(mangoAccount.metaData.isInitialized);
+    assert.ok(mangoAccount.delegate.equals(provider.wallet.publicKey))
   });
 
-  it("can create a mangoAccount owned by the pool", async () => {
-    const newnew = Keypair.generate();
-    const tx = await program.rpc.createMangoAccount(new anchor.BN(1), {
-      accounts: {
-        pool: poolAddress,
-        admin: provider.wallet.publicKey,
-        mangoProgram: MANGO_PROG_ID,
-        mangoGroup: mangoGroupPubkey,
-        mangoAccount: newnew.publicKey,
-        systemProgram: SystemProgram.programId,
-      },
-      signers: [payer],
-    });
-
-
-  //assertion here
-
-  });
 
 });
