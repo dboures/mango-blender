@@ -7,8 +7,8 @@ declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 #[program]
 pub mod mango_blender {
 use super::*;
-    pub fn create_pool(ctx: Context<CreatePool>, bump: u8, account_num: u64) -> ProgramResult {
-        // ctx.accounts.pool.vault = *ctx.accounts.admin.key;
+    pub fn create_pool(ctx: Context<CreatePool>, pool_name: String, bump: u8, account_num: u64) -> ProgramResult {
+        ctx.accounts.pool.pool_name = pool_name;
         ctx.accounts.pool.admin = *ctx.accounts.admin.key;
         ctx.accounts.pool.bump = bump;
 
@@ -24,9 +24,9 @@ use super::*;
             )
              .unwrap();
     
-        let seeds = &[ // TODO: add name, reintroduce pubkey
-            b"pool".as_ref(),
-            // ctx.accounts.pool.admin.as_ref(),
+        let seeds = &[
+            &ctx.accounts.pool.pool_name.as_ref(),
+            ctx.accounts.pool.admin.as_ref(),
             &[ctx.accounts.pool.bump],
         ];
         
@@ -52,12 +52,6 @@ use super::*;
             ctx.accounts.admin.key,
             )
              .unwrap();
-    
-        let seeds = &[ // TODO: add name, reintroduce pubkey
-            b"pool".as_ref(),
-            // ctx.accounts.pool.admin.as_ref(),
-            &[ctx.accounts.pool.bump],
-        ];
         
         invoke_signed(
             &delegate_instruction,
@@ -73,12 +67,22 @@ use super::*;
 
         Ok(())
     }
+
+
+    // pub fn deposit(ctx: Context<Deposit>) -> ProgramResult {
+        // handle deposit
+        // calculate iou tokens
+        //return iou tokens
+    //     Ok(())
+    // }
+
+
 }
 
 #[derive(Accounts)]
-#[instruction(bump: u8)]
+#[instruction(pool_name: String, bump: u8)]
 pub struct CreatePool<'info> {
-    #[account(init, seeds = [b"pool".as_ref()], bump = bump, payer = admin, space = 8 + 33)]
+    #[account(init, seeds = [pool_name.as_ref(), admin.key.as_ref()], bump, payer = admin, space = 8 + 33 + 32)]
     pub pool: Account<'info, Pool>,
     #[account(signer)]
     pub admin: AccountInfo<'info>,
@@ -92,9 +96,25 @@ pub struct CreatePool<'info> {
     pub system_program: Program<'info, System>,
 }
 
+// #[derive(Accounts)]
+// #[instruction(bump: u8)]
+// pub struct Deposit<'info> {
+//     pub pool: Account<'info, Pool>,
+//     #[account(signer)]
+//     pub admin: AccountInfo<'info>,
+//     // todo: check target program key
+//     pub mango_program: UncheckedAccount<'info>,
+//     // todo: check target group key
+//     #[account(mut)]
+//     pub mango_group: UncheckedAccount<'info>,
+//     #[account(mut)]
+//     pub mango_account: UncheckedAccount<'info>,
+//     pub system_program: Program<'info, System>,
+// }
+
 #[account]
 pub struct Pool {
     pub bump: u8,       //1
-    // pub vault: Pubkey, // 32
+    pub pool_name: String, // Max of 32 characters
     pub admin: Pubkey, // 32
 }

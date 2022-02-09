@@ -18,6 +18,8 @@ describe("mango-blender", () => {
 
   let poolAddress: PublicKey;
   let poolBump: number;
+  let poolName: string;
+  let poolNameBytes: Buffer;
 
   let mangoAccountAddress: PublicKey;
   let mangoAccountBump: number;
@@ -36,9 +38,11 @@ describe("mango-blender", () => {
       (baseProvider.wallet as NodeWallet).payer.secretKey
     );
     program = anchor.workspace.MangoBlender as Program<MangoBlender>;
+    poolName = "testpool";
+    poolNameBytes = Buffer.from(poolName, "utf-8");
 
     [poolAddress, poolBump] = await PublicKey.findProgramAddress(
-      [Buffer.from("pool", "utf-8")],
+      [poolNameBytes, provider.wallet.publicKey.toBytes()],
       program.programId
     );
 
@@ -53,7 +57,7 @@ describe("mango-blender", () => {
 
   it("can create a liquidator pool, which includes a delegated mangoAccount for liqor", async () => {
     const accountNum = new anchor.BN(1)
-    const tx = await program.rpc.createPool(poolBump, accountNum, {
+    const tx = await program.rpc.createPool(poolNameBytes, poolBump, accountNum, {
       accounts: {
         pool: poolAddress,
         admin: provider.wallet.publicKey,
