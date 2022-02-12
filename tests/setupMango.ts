@@ -11,7 +11,9 @@ import {
   SystemProgram,
   Transaction,
 } from "@solana/web3.js";
-import { AccountLayout, Token, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { AccountLayout, Token, TOKEN_PROGRAM_ID, u64 } from "@solana/spl-token";
+import { createMintToInstruction, getOrCreateATA } from "@saberhq/token-utils";
+import { Provider as SaberProvider } from "@saberhq/token-utils/node_modules/@saberhq/solana-contrib";
 
 // These params typically differ across currencies (and Spot vs Perp) based on risk
 // Since this is just for simple testing, it's ok to reuse them for everything
@@ -33,10 +35,10 @@ export const MANGO_PROG_ID = new PublicKey(
 
 export async function createMangoGroup(
   provider: SolanaProvider,
-  payer: Keypair
+  payer: Keypair,
+  quoteToken: Token
 ): Promise<PublicKey> {
   const client = new MangoClient(provider.connection, MANGO_PROG_ID);
-  const quoteToken = await createQuoteToken(provider, payer);
   const feesVaultPubkey = await initializeFeeVault(provider, payer, quoteToken);
 
   const groupPubkey = await client.initMangoGroup(
@@ -54,7 +56,7 @@ export async function createMangoGroup(
   return groupPubkey;
 }
 
-async function createQuoteToken(
+export async function createQuoteToken(
   provider: SolanaProvider,
   payer: Keypair
 ): Promise<Token> {
@@ -64,9 +66,34 @@ async function createQuoteToken(
     payer as any,
     payer.publicKey,
     null,
-    0,
+    6,
     TOKEN_PROGRAM_ID
   );
+}
+
+export async function initializeProviderQuoteATA(provider: SolanaProvider, payer: Keypair, quoteToken: Token) {
+    // Create associated token accounts
+    const createQuoteATAResult = await getOrCreateATA({
+      provider: provider as unknown as SaberProvider, // TODO: WTF
+      mint: quoteToken.publicKey,
+    });
+
+    // Mint tokens
+    const mintQuoteInstruction = createMintToInstruction({
+      provider: provider as unknown as SaberProvider,
+      mint: quoteToken.publicKey,
+      mintAuthorityKP: payer,
+      to: createQuoteATAResult.address,
+      amount: new u64(5000000),
+    });
+
+    const transaction = new Transaction();
+    if (createQuoteATAResult.instruction) {
+      transaction.add(createQuoteATAResult.instruction);
+    }
+    transaction.add(...mintQuoteInstruction.instructions);
+    await provider.send(transaction);
+    return createQuoteATAResult.address
 }
 
 async function initializeFeeVault(

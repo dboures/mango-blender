@@ -1,3 +1,4 @@
+use anchor_spl::token::TokenAccount;
 use anchor_lang::prelude::*;
 use solana_program::program::invoke_signed;
 use mango::instruction as MangoInstructions;
@@ -69,12 +70,51 @@ use super::*;
     }
 
 
-    // pub fn deposit(ctx: Context<Deposit>) -> ProgramResult {
+    pub fn deposit(ctx: Context<Deposit>, quantity: u64) -> ProgramResult {
+        
         // handle deposit
+        let deposit_instruction = MangoInstructions::deposit(
+            ctx.accounts.mango_program.key,
+            ctx.accounts.mango_group.key, 
+            ctx.accounts.mango_account.key, 
+            ctx.accounts.depositor.key, 
+            ctx.accounts.mango_cache.key,
+            ctx.accounts.root_bank.key,
+            ctx.accounts.node_bank.key,
+            ctx.accounts.vault.key,
+            ctx.accounts.depositor_token_account.to_account_info().key,
+            quantity
+        ).unwrap();
+
+    
+        let seeds = &[
+            &ctx.accounts.pool.pool_name.as_ref(),
+            ctx.accounts.pool.admin.as_ref(),
+            &[ctx.accounts.pool.bump],
+        ];
+        
+        invoke_signed(
+            &deposit_instruction,
+            &[
+                ctx.accounts.mango_program.to_account_info().clone(),
+                ctx.accounts.mango_group.to_account_info().clone(), 
+                ctx.accounts.mango_account.to_account_info().clone(), 
+                ctx.accounts.depositor.to_account_info().clone(), 
+                ctx.accounts.mango_cache.to_account_info().clone(),
+                ctx.accounts.root_bank.to_account_info().clone(),
+                ctx.accounts.node_bank.to_account_info().clone(),
+                ctx.accounts.vault.to_account_info().clone(),
+                ctx.accounts.depositor_token_account.to_account_info().clone(),
+            ],
+            &[&seeds[..]],
+        )?;
+
         // calculate iou tokens
         //return iou tokens
-    //     Ok(())
-    // }
+
+
+        Ok(())
+    }
 
 
 }
@@ -86,31 +126,34 @@ pub struct CreatePool<'info> {
     pub pool: Account<'info, Pool>,
     #[account(signer)]
     pub admin: AccountInfo<'info>,
-    // todo: check target program key
-    pub mango_program: UncheckedAccount<'info>,
-    // todo: check target group key
+    pub mango_program: UncheckedAccount<'info>,// TODO
     #[account(mut)]
-    pub mango_group: UncheckedAccount<'info>,
+    pub mango_group: UncheckedAccount<'info>,// TODO
     #[account(mut)]
-    pub mango_account: UncheckedAccount<'info>,
+    pub mango_account: UncheckedAccount<'info>,// TODO
     pub system_program: Program<'info, System>,
 }
 
-// #[derive(Accounts)]
-// #[instruction(bump: u8)]
-// pub struct Deposit<'info> {
-//     pub pool: Account<'info, Pool>,
-//     #[account(signer)]
-//     pub admin: AccountInfo<'info>,
-//     // todo: check target program key
-//     pub mango_program: UncheckedAccount<'info>,
-//     // todo: check target group key
-//     #[account(mut)]
-//     pub mango_group: UncheckedAccount<'info>,
-//     #[account(mut)]
-//     pub mango_account: UncheckedAccount<'info>,
-//     pub system_program: Program<'info, System>,
-// }
+#[derive(Accounts)]
+pub struct Deposit<'info> {
+    pub mango_program: UncheckedAccount<'info>,// TODO
+    #[account(seeds = [pool.pool_name.as_ref(), pool.admin.as_ref()], bump)]
+    pub pool: Account<'info, Pool>, // Validation??
+    pub mango_group: UncheckedAccount<'info>, // TODO
+    #[account(mut)]
+    pub mango_account: UncheckedAccount<'info>, // TODO
+    #[account(signer)]
+    pub depositor: AccountInfo<'info>,
+    pub mango_cache: UncheckedAccount<'info>, // TODO
+    pub root_bank: UncheckedAccount<'info>, // TODO
+    #[account(mut)]
+    pub node_bank: UncheckedAccount<'info>, // TODO
+    #[account(mut)]
+    pub vault: UncheckedAccount<'info>, // TODO
+    #[account(mut)] // , constraint = depositor_token_account.owner == depositor.key()
+    pub depositor_token_account: Account<'info, TokenAccount>,
+    pub token_program: AccountInfo<'info>, // TODO
+}
 
 #[account]
 pub struct Pool {
