@@ -1,0 +1,38 @@
+{
+  "cluster_urls": {
+    "localnet": "http://127.0.0.1:8899"
+  },
+  "groups": [
+    {
+      "cluster": "localnet",
+      "name": "localnet.1",
+      "publicKey": "3L7j3jtVobxpfPcdYyUxxDoxVocukgPK7rVpGQYijwGo",
+      "quoteSymbol": "QUOTE",
+      "mangoProgramId": "mv3ekLzLbnVPNxjSKvqBpU3ZeZXPQdEC3bp5MDEBG68",
+      "serumProgramId": "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin",
+      "tokens": [
+        {
+          "symbol": "QUOTE",
+          "mintKey": "H44Kb2W8QRU8FQHaySxWKB3NoRrXgPB5QijVVWY2hGJj",
+          "decimals": 6,
+          "rootKey": "3DmeFykNUHgXtYWfhh9tHiFoXQuXBaL7KUZAt3uS8owz",
+          "nodeKeys": [
+            "Asbqa8SWdJbWh8DVD5jGooLmDiTLXijiALLgovsPNxKs"
+          ]
+        }
+      ],
+      "oracles": [
+        {
+          "symbol": "BBBB",
+          "publicKey": "BBUSTpR89ko93AgkVYxMwckD4pQYFYHhmoP7cd81kdR9"
+        },
+        {
+          "symbol": "AAAA",
+          "publicKey": "BBUSTpR89ko93AgkVYxMwckD4pQYFYHhmoP7cd81kdR9"
+        }
+      ],
+      "perpMarkets": [],
+      "spotMarkets": []
+    }
+  ]
+}
