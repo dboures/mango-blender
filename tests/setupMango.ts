@@ -5,8 +5,11 @@ import {
   getSpotMarketByBaseSymbol,
   getTokenBySymbol,
   GroupConfig,
+  MangoCache,
   MangoClient,
+  MangoGroup,
   OracleConfig,
+  RootBank,
   zeroKey,
 } from "@blockworks-foundation/mango-client";
 import { SolanaProvider } from "@saberhq/solana-contrib";
@@ -312,4 +315,20 @@ export async function addSpotMarket(
   config.storeGroup(groupConfig);
   writeConfig(config);
   console.log(`${baseSymbol}/${groupConfig.quoteSymbol} spot market added`);
+}
+
+
+export async function keeperRefresh(client: MangoClient, mangoGroup: MangoGroup, mangoCache: MangoCache, rootBanks: RootBank[]): Promise<void> {
+  const rootBankPubkeys = rootBanks
+  .map((rb) => rb?.publicKey)
+  .filter((pk) => pk !== undefined) as PublicKey[];
+
+  await client.cacheRootBanks(
+    mangoGroup.publicKey,
+    mangoCache.publicKey,
+    rootBankPubkeys,
+    TEST_PAYER as unknown as Account
+  );
+
+  await client.cachePrices(mangoGroup.publicKey, mangoCache.publicKey, mangoGroup.oracles, TEST_PAYER as unknown as Account);
 }
