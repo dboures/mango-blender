@@ -5,6 +5,7 @@ import {
   Keypair,
   PublicKey,
   SystemProgram,
+  SYSVAR_RENT_PUBKEY,
   Transaction,
 } from "@solana/web3.js";
 import {
@@ -23,11 +24,16 @@ import {
   MANGO_PROG_ID,
   setOraclePrice,
 } from "./setupMango";
-import { Config, MangoClient, uiToNative } from "@blockworks-foundation/mango-client";
-import { Token, TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { getTokenAccount } from "@saberhq/token-utils";
+import {
+  Config,
+  MangoClient,
+  uiToNative,
+} from "@blockworks-foundation/mango-client";
+import { MintLayout, Token, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { getTokenAccount, TokenAccountLayout } from "@saberhq/token-utils";
 import { setupSpotMarket } from "./setupSerum";
 const assert = require("assert");
+const utf8 = anchor.utils.bytes.utf8;
 
 const baseProvider = Provider.local();
 export const TEST_PROVIDER = new SolanaProvider(
@@ -39,14 +45,15 @@ export const TEST_PAYER = Keypair.fromSecretKey(
   (baseProvider.wallet as NodeWallet).payer.secretKey
 );
 
-
 describe("mango-blender", () => {
   let program: any;
 
   let poolAddress: PublicKey;
   let poolBump: number;
+  let poolIouAddress: PublicKey;
+  let poolIouBump: number;
   let poolName: string;
-  let poolNameBytes: Buffer;
+  let poolNameBytes: Uint8Array;
 
   let mangoAccountAddress: PublicKey;
   let mangoAccountBump: number;
@@ -65,10 +72,15 @@ describe("mango-blender", () => {
   before(async () => {
     program = anchor.workspace.MangoBlender as Program<MangoBlender>;
     poolName = "testpool";
-    poolNameBytes = Buffer.from(poolName, "utf-8");
+    poolNameBytes = utf8.encode(poolName);
 
     [poolAddress, poolBump] = await PublicKey.findProgramAddress(
       [poolNameBytes, TEST_PROVIDER.wallet.publicKey.toBytes()],
+      program.programId
+    );
+
+    [poolIouAddress, poolIouBump] = await PublicKey.findProgramAddress(
+      [poolNameBytes, TEST_PROVIDER.wallet.publicKey.toBytes(), utf8.encode("iou")],
       program.programId
     );
 
@@ -86,16 +98,26 @@ describe("mango-blender", () => {
 
     // set oracle prices -> QUOTE is always 1
     // For a stub oracle the price we pass in is interpreted as how many quote native tokens for 1 base native token
-    await setOraclePrice(client, 'AAAA', 10);
-    await setOraclePrice(client, 'BBBB', 0.5);
+    await setOraclePrice(client, "AAAA", 10);
+    await setOraclePrice(client, "BBBB", 0.5);
 
     //create Serum markets
-    const marketA = await setupSpotMarket(tokenA.publicKey, quoteToken.publicKey, 1, 1);
-    const marketB = await setupSpotMarket(tokenB.publicKey, quoteToken.publicKey, 1, 1);
+    const marketA = await setupSpotMarket(
+      tokenA.publicKey,
+      quoteToken.publicKey,
+      1,
+      1
+    );
+    const marketB = await setupSpotMarket(
+      tokenB.publicKey,
+      quoteToken.publicKey,
+      1,
+      1
+    );
 
     //add Serum markets to Mango so we can deposit tokens
-    await addSpotMarket(client, 'AAAA', marketA.market, tokenA.publicKey);
-    await addSpotMarket(client, 'BBBB', marketB.market, tokenB.publicKey);
+    await addSpotMarket(client, "AAAA", marketA.market, tokenA.publicKey);
+    await addSpotMarket(client, "BBBB", marketB.market, tokenB.publicKey);
 
     [mangoAccountAddress, mangoAccountBump] =
       await PublicKey.findProgramAddress(
@@ -108,18 +130,9 @@ describe("mango-blender", () => {
       );
 
     // 5 tokens each
-    providerQuoteATA = await initializeProviderATA(
-      quoteToken,
-      5000000
-    );
-    providerAATA = await initializeProviderATA(
-      tokenA,
-      5000000
-    );
-    providerBATA = await initializeProviderATA(
-      tokenB,
-      5000000
-    );
+    providerQuoteATA = await initializeProviderATA(quoteToken, 5000000);
+    providerAATA = await initializeProviderATA(tokenA, 5000000);
+    providerBATA = await initializeProviderATA(tokenB, 5000000);
   });
 
   it("can create a liquidator pool, which includes a delegated mangoAccount for liqor", async () => {
@@ -127,25 +140,43 @@ describe("mango-blender", () => {
     const tx = await program.rpc.createPool(
       poolNameBytes,
       poolBump,
+      poolIouBump,
       accountNum,
       {
         accounts: {
           pool: poolAddress,
+          depositIouMint: poolIouAddress,
           admin: TEST_PROVIDER.wallet.publicKey,
           mangoProgram: MANGO_PROG_ID,
           mangoGroup: mangoGroupPubkey,
           mangoAccount: mangoAccountAddress,
           systemProgram: SystemProgram.programId,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          rent: SYSVAR_RENT_PUBKEY,
         },
         signers: [TEST_PAYER],
       }
     );
 
+    // check pool has been initialized correctly
     const initializedPool = await program.account.pool.fetch(poolAddress);
     assert.ok(
-      initializedPool.admin.toBase58() === TEST_PROVIDER.wallet.publicKey.toBase58()
+      initializedPool.admin.toBase58() ===
+        TEST_PROVIDER.wallet.publicKey.toBase58()
     );
+    assert.ok(initializedPool.iouMint.toBase58() === poolIouAddress.toBase58());
+    assert.ok(initializedPool.poolName === poolName);
 
+    // check iou mint has been initialized correctly
+    const poolIouMintAccountInfo = await TEST_PROVIDER.connection.getAccountInfo(
+      poolIouAddress
+    );
+    const poolIouMint = MintLayout.decode(poolIouMintAccountInfo.data);
+    assert.ok(poolIouMintAccountInfo.owner.equals(TOKEN_PROGRAM_ID));
+    assert.ok(poolAddress.equals(new PublicKey(poolIouMint.freezeAuthority)));
+    assert.ok(poolAddress.equals(new PublicKey(poolIouMint.mintAuthority)));
+
+    //check mangoAccount has been initialized with correct delegate
     const mangoAccount = await client.getMangoAccount(
       mangoAccountAddress,
       MANGO_PROG_ID
@@ -223,12 +254,9 @@ describe("mango-blender", () => {
   it("allows a user to deposit TOKEN_A into the delegated mangoAccount", async () => {
     const beforeWalletQuantity = new anchor.BN(5000000);
     const depositQuantity = new anchor.BN(1000000);
-    const providerABefore = await getTokenAccount(
-      TEST_PROVIDER,
-      providerAATA
-    );
+    const providerABefore = await getTokenAccount(TEST_PROVIDER, providerAATA);
     assert.ok(providerABefore.amount.eq(beforeWalletQuantity));
-  
+
     const group = await client.getMangoGroup(mangoGroupPubkey);
     const rootBanks = await group.loadRootBanks(TEST_PROVIDER.connection);
     const tokenIndex = group.getTokenIndex(tokenA.publicKey);
@@ -239,9 +267,9 @@ describe("mango-blender", () => {
     if (!nodeBanks) {
       throw Error;
     }
-  
+
     await keeperRefresh(client, group, mangoCache, rootBanks);
-  
+
     const tx = await program.rpc.deposit(depositQuantity, tokenIndex, {
       accounts: {
         mangoProgram: MANGO_PROG_ID,
@@ -258,25 +286,20 @@ describe("mango-blender", () => {
       },
       signers: [TEST_PAYER],
     });
-  
-    const providerAAfter = await getTokenAccount(
-      TEST_PROVIDER,
-      providerAATA
+
+    const providerAAfter = await getTokenAccount(TEST_PROVIDER, providerAATA);
+    assert.ok(
+      providerAAfter.amount.eq(beforeWalletQuantity.sub(depositQuantity))
     );
-    assert.ok(providerAAfter.amount.eq(beforeWalletQuantity.sub(depositQuantity)));
-  
+
     const mangoAccount = await client.getMangoAccount(
       mangoAccountAddress,
       MANGO_PROG_ID
     );
     assert.ok(mangoAccount.deposits[tokenIndex].toNumber() === 1);
-  
+
     const pool = await program.account.pool.fetch(poolAddress);
     // console.log(pool.totalUsdcDeposits);
     // assert.ok(pool.totalUsdcDeposits.eq(depositQuantity));
   });
-
-
 });
-
-
