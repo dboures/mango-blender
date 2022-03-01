@@ -6,8 +6,11 @@ use fixed::types::I80F48;
 use mango::declare_check_assert_macros;
 use mango::error::{check_assert, MangoErrorCode, SourceFileId};
 use mango::instruction as MangoInstructions;
-use mango::state::{AssetType, MangoAccount, MangoCache, MangoGroup, UserActiveAssets};
+use mango::state::{
+    AssetType, MangoAccount, MangoCache, MangoGroup, UserActiveAssets, QUOTE_INDEX, ZERO_I80F48
+};
 use solana_program::program::invoke_signed;
+mod helpers;
 
 declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 
@@ -16,6 +19,8 @@ declare_check_assert_macros!(SourceFileId::Processor);
 #[program]
 pub mod mango_blender {
     use super::*;
+    use crate::helpers::get_mango_account_base_net;
+    use crate::helpers::get_spot_val_in_quote;
     use std::convert::TryFrom;
     pub fn create_pool(
         ctx: Context<CreatePool>,
@@ -84,7 +89,7 @@ pub mod mango_blender {
             &[&seeds[..]],
         )?;
 
-        // create IOU token
+        // create pool IOU token
 
         Ok(())
     }
@@ -166,16 +171,52 @@ pub mod mango_blender {
         let deposit_quantity = I80F48::from_num(quantity);
         check!(deposit_quantity > 0, MangoErrorCode::Default)?;
 
-        let deposit_value_usdc = asset_price.checked_mul(deposit_quantity).unwrap();
+        let deposit_value_quote = asset_price.checked_mul(deposit_quantity).unwrap();
 
-        // need total value of pool at current price -> going to be interesting, how do open orders come into play?
+        // calculate total value of pool at current price (including open orders)
+        let open_orders_ais =
+            mango_account.checked_unpack_open_orders(&mango_group, &ctx.remaining_accounts)?;
 
-        msg!("active assets : {:?}", active_assets.spot);
-        msg!("asset price : {}", asset_price);
-        msg!("deposit quantity : {}", deposit_quantity);
-        // panic!("Here's deposit_value_usdc just in case: {:?}", deposit_value_usdc);
-        // let quote_root_bank_cache = &mango_cache.root_bank_cache[QUOTE_INDEX];
-        //let goo = mango_account.get_native_deposit(quote_root_bank_cache, QUOTE_INDEX).unwrap();
+        let mango_deposits = mango_account.deposits;
+        let mango_borrows = mango_account.borrows;
+        let mango_in_margin_basket = mango_account.in_margin_basket;
+
+        let mut pool_value_quote = ZERO_I80F48;
+
+        for i in 0..mango_group.num_oracles {
+            let base_net = get_mango_account_base_net(
+                mango_deposits,
+                mango_borrows,
+                mango_cache.root_bank_cache[i],
+                i,
+            );
+            // let y = get_mango_account_net();
+            msg!("i: {:?}", i);
+            msg!("base_net: {:?}", base_net);
+
+            let price = mango_cache.get_price(i);
+            msg!("price: {:?}", price);
+            let market_value_quote = get_spot_val_in_quote(
+                base_net,
+                price,
+                open_orders_ais[i],
+                mango_in_margin_basket[i],
+            ).unwrap();
+            msg!("quote val: {:?}", market_value_quote);
+            pool_value_quote += market_value_quote;
+        }
+        let quote_value = get_mango_account_base_net(
+            mango_deposits,
+            mango_borrows,
+            mango_cache.root_bank_cache[QUOTE_INDEX],
+            QUOTE_INDEX,
+        );
+        pool_value_quote += quote_value;
+        msg!("naked quote_value: {:?}", quote_value);
+        msg!("pool_value_quote: {:?}", pool_value_quote);
+
+
+        panic!("panik");
 
         // mint iou tokens
 
@@ -244,23 +285,23 @@ pub struct Deposit<'info> {
     pub vault: UncheckedAccount<'info>, // TODO
     #[account(mut, constraint = depositor_token_account.owner == depositor.key())]
     pub depositor_token_account: Account<'info, TokenAccount>,
-    pub token_program: AccountInfo<'info>, // TODO
+    pub token_program: Program<'info, Token>, // TODO
 
-                                           // TODO: add asset index
+                                              // TODO: add asset index
 
-                                           // #[account(
-                                           //     mut,
-                                           //     seeds = [token_mint.key().as_ref()],
-                                           //     bump = gateway.deposit_iou_mint_bump,
-                                           // )]
-                                           // pub deposit_iou_mint: AccountInfo<'info>,
+                                              // #[account(
+                                              //     mut,
+                                              //     seeds = [token_mint.key().as_ref()],
+                                              //     bump = gateway.deposit_iou_mint_bump,
+                                              // )]
+                                              // pub deposit_iou_mint: AccountInfo<'info>,
 
-                                           // #[account(
-                                           //     associated_token::authority = payer,
-                                           //     associated_token::mint = deposit_iou_mint,
-                                           //     payer = payer
-                                           // )]
-                                           // pub deposit_iou_token_account: Box<Account<'info, TokenAccount>>,
+                                              // #[account(
+                                              //     associated_token::authority = payer,
+                                              //     associated_token::mint = deposit_iou_mint,
+                                              //     payer = payer
+                                              // )]
+                                              // pub deposit_iou_token_account: Box<Account<'info, TokenAccount>>,
 }
 
 #[account]

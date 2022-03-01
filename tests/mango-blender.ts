@@ -270,6 +270,13 @@ describe("mango-blender", () => {
 
     await keeperRefresh(client, group, mangoCache, rootBanks);
 
+    const beforeMangoAccount = await client.getMangoAccount(
+      mangoAccountAddress,
+      MANGO_PROG_ID
+    );
+    const openOrdersKeys = beforeMangoAccount.getOpenOrdersKeysInBasket();
+    const remainingAccounts = openOrdersKeys.map((key) =>  {return { pubkey: key, isWritable: false, isSigner: false } })
+
     const tx = await program.rpc.deposit(depositQuantity, tokenIndex, {
       accounts: {
         mangoProgram: MANGO_PROG_ID,
@@ -284,6 +291,7 @@ describe("mango-blender", () => {
         vault: nodeBanks[0].vault,
         tokenProgram: TOKEN_PROGRAM_ID,
       },
+      remainingAccounts,
       signers: [TEST_PAYER],
     });
 
