@@ -1,13 +1,11 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::Mint;
-use anchor_spl::token::Token;
-use anchor_spl::token::TokenAccount;
+use anchor_spl::token::{self, Mint, MintTo, Token, TokenAccount};
 use fixed::types::I80F48;
 use mango::declare_check_assert_macros;
 use mango::error::{check_assert, MangoErrorCode, SourceFileId};
 use mango::instruction as MangoInstructions;
 use mango::state::{
-    AssetType, MangoAccount, MangoCache, MangoGroup, UserActiveAssets, QUOTE_INDEX, ZERO_I80F48
+    AssetType, MangoAccount, MangoCache, MangoGroup, UserActiveAssets, QUOTE_INDEX, ZERO_I80F48,
 };
 use solana_program::program::invoke_signed;
 mod helpers;
@@ -34,7 +32,6 @@ pub mod mango_blender {
         ctx.accounts.pool.pool_bump = pool_bump;
         ctx.accounts.pool.iou_mint_bump = iou_mint_bump;
         ctx.accounts.pool.iou_mint = ctx.accounts.deposit_iou_mint.key();
-        ctx.accounts.pool.total_usdc_deposits = 0;
 
         //cpi to create mango account
         let create_instruction = MangoInstructions::create_mango_account(
@@ -53,6 +50,7 @@ pub mod mango_blender {
             ctx.accounts.pool.admin.as_ref(),
             &[ctx.accounts.pool.pool_bump],
         ];
+        let cpi_seed = &[&seeds[..]];
 
         invoke_signed(
             &create_instruction,
@@ -64,7 +62,7 @@ pub mod mango_blender {
                 ctx.accounts.system_program.to_account_info().clone(),
                 ctx.accounts.admin.to_account_info().clone(),
             ],
-            &[&seeds[..]],
+            cpi_seed,
         )?;
 
         //cpi to set delegate to admin
@@ -86,10 +84,8 @@ pub mod mango_blender {
                 ctx.accounts.pool.to_account_info().clone(),
                 ctx.accounts.admin.to_account_info().clone(),
             ],
-            &[&seeds[..]],
+            cpi_seed,
         )?;
-
-        // create pool IOU token
 
         Ok(())
     }
@@ -115,6 +111,7 @@ pub mod mango_blender {
             ctx.accounts.pool.admin.as_ref(),
             &[ctx.accounts.pool.pool_bump],
         ];
+        let cpi_seed = &[&seeds[..]];
 
         invoke_signed(
             &deposit_instruction,
@@ -132,10 +129,10 @@ pub mod mango_blender {
                     .to_account_info()
                     .clone(),
             ],
-            &[&seeds[..]],
+            cpi_seed,
         )?;
 
-        // calculate iou tokens
+        // load mango account, group, cache
         let token_index = usize::try_from(asset_index).unwrap();
         let mango_account_ai = ctx.accounts.mango_account.to_account_info();
         let mango_group_ai = ctx.accounts.mango_group.to_account_info();
@@ -170,13 +167,11 @@ pub mod mango_blender {
         let asset_price = mango_cache.get_price(token_index); // mango_cache price is interpreted as how many quote native tokens for 1 base native token
         let deposit_quantity = I80F48::from_num(quantity);
         check!(deposit_quantity > 0, MangoErrorCode::Default)?;
-
         let deposit_value_quote = asset_price.checked_mul(deposit_quantity).unwrap();
 
         // calculate total value of pool at current price (including open orders)
         let open_orders_ais =
             mango_account.checked_unpack_open_orders(&mango_group, &ctx.remaining_accounts)?;
-
         let mango_deposits = mango_account.deposits;
         let mango_borrows = mango_account.borrows;
         let mango_in_margin_basket = mango_account.in_margin_basket;
@@ -190,19 +185,19 @@ pub mod mango_blender {
                 mango_cache.root_bank_cache[i],
                 i,
             );
-            // let y = get_mango_account_net();
-            msg!("i: {:?}", i);
-            msg!("base_net: {:?}", base_net);
+            // msg!("i: {:?}", i);
+            // msg!("base_net: {:?}", base_net);
 
             let price = mango_cache.get_price(i);
-            msg!("price: {:?}", price);
+            // msg!("price: {:?}", price);
             let market_value_quote = get_spot_val_in_quote(
                 base_net,
                 price,
                 open_orders_ais[i],
                 mango_in_margin_basket[i],
-            ).unwrap();
-            msg!("quote val: {:?}", market_value_quote);
+            )
+            .unwrap();
+            // msg!("quote val: {:?}", market_value_quote);
             pool_value_quote += market_value_quote;
         }
         let quote_value = get_mango_account_base_net(
@@ -212,22 +207,42 @@ pub mod mango_blender {
             QUOTE_INDEX,
         );
         pool_value_quote += quote_value;
-        msg!("naked quote_value: {:?}", quote_value);
+        // msg!("naked quote_value: {:?}", quote_value);
+
+        msg!("deposit_value_quote: {:?}", deposit_value_quote);
         msg!("pool_value_quote: {:?}", pool_value_quote);
 
+        let mint_accounts = MintTo {
+            to: ctx.accounts.depositor_iou_token_account.to_account_info(),
+            mint: ctx.accounts.deposit_iou_mint.to_account_info(),
+            authority: ctx.accounts.pool.to_account_info(),
+        };
+        let token_program_ai = ctx.accounts.token_program.to_account_info();
+        let iou_mint_ctx = CpiContext::new_with_signer(token_program_ai, mint_accounts, cpi_seed);
 
-        panic!("panik");
+        // in case of first deposit
+        if ctx.accounts.deposit_iou_mint.supply == 0 {
+            let mint_amount: u64 = deposit_value_quote
+                .checked_floor()
+                .unwrap()
+                .checked_to_num()
+                .unwrap();
+            msg!("mint_amount: {:?}", mint_amount);
 
-        // mint iou tokens
+            token::mint_to(iou_mint_ctx, mint_amount)?;
+        } else {
+            let outstanding_iou_tokens = I80F48::from_num(ctx.accounts.deposit_iou_mint.supply);
+            // note that pool_value_quote is always >= deposit_value_quote, since we already deposited above
+            let mint_amount: u64 = ((deposit_value_quote * outstanding_iou_tokens)
+                / (pool_value_quote - deposit_value_quote))
+                .checked_floor()
+                .unwrap()
+                .checked_to_num()
+                .unwrap();
+            msg!("mint_amount: {:?}", mint_amount);
 
-        // token::mint_to(
-        //     ctx.accounts.iou_mint_context().with_signer(&[&[
-        //         "gateway".as_ref(),
-        //         ctx.accounts.gateway.admin.key().as_ref(),
-        //         &[ctx.accounts.gateway.bump],
-        //     ]]),
-        //     quantity,
-        // )?;
+            token::mint_to(iou_mint_ctx, mint_amount)?;
+        }
 
         Ok(())
     }
@@ -241,8 +256,8 @@ pub struct CreatePool<'info> {
         seeds = [pool_name.as_ref(), admin.key.as_ref()], 
         bump, 
         payer = admin, 
-        space = 8 + 16 + 32 + 32 + 32 + 1)]
-    // ??? + deposits + admin Pkey + iou pkey + string + bump
+        space = 8 + 32 + 32 + 32 + 1)]
+    // ??? + admin Pkey + iou pkey + string + bump
     pub pool: Account<'info, Pool>,
     #[account(signer)]
     pub admin: AccountInfo<'info>,
@@ -285,23 +300,19 @@ pub struct Deposit<'info> {
     pub vault: UncheckedAccount<'info>, // TODO
     #[account(mut, constraint = depositor_token_account.owner == depositor.key())]
     pub depositor_token_account: Account<'info, TokenAccount>,
-    pub token_program: Program<'info, Token>, // TODO
+    #[account(
+        mut,
+        seeds = [pool.pool_name.as_ref(), pool.admin.as_ref(), b"iou"],
+        bump = pool.iou_mint_bump,
+    )]
+    pub deposit_iou_mint: Account<'info, Mint>,
 
-                                              // TODO: add asset index
-
-                                              // #[account(
-                                              //     mut,
-                                              //     seeds = [token_mint.key().as_ref()],
-                                              //     bump = gateway.deposit_iou_mint_bump,
-                                              // )]
-                                              // pub deposit_iou_mint: AccountInfo<'info>,
-
-                                              // #[account(
-                                              //     associated_token::authority = payer,
-                                              //     associated_token::mint = deposit_iou_mint,
-                                              //     payer = payer
-                                              // )]
-                                              // pub deposit_iou_token_account: Box<Account<'info, TokenAccount>>,
+    #[account(mut,
+        associated_token::authority = depositor,
+        associated_token::mint = deposit_iou_mint
+    )]
+    pub depositor_iou_token_account: Box<Account<'info, TokenAccount>>,
+    pub token_program: Program<'info, Token>,
 }
 
 #[account]
@@ -311,5 +322,4 @@ pub struct Pool {
     pub iou_mint_bump: u8,         //1
     pub iou_mint: Pubkey,          // 32
     pub admin: Pubkey,             // 32
-    pub total_usdc_deposits: i128, // 16 -- Assuming only USDC for now, not sure best way to support all types of deposits, definitely need oracle,
 }

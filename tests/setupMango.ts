@@ -116,29 +116,31 @@ export async function createToken(
 }
 
 export async function initializeProviderATA(
-  token: Token,
-  lots: number
+  tokenPubkey: PublicKey,
+  lots: number,
+  mintTokens = true
 ) {
+  const transaction = new Transaction();
   // Create associated token accounts
   const createATAResult = await getOrCreateATA({
     provider: TEST_PROVIDER,
-    mint: token.publicKey,
+    mint: tokenPubkey,
   });
-
-  // Mint tokens
-  const mintInstruction = createMintToInstruction({
-    provider: TEST_PROVIDER,
-    mint: token.publicKey,
-    mintAuthorityKP: TEST_PAYER,
-    to: createATAResult.address,
-    amount: new u64(lots),
-  });
-
-  const transaction = new Transaction();
   if (createATAResult.instruction) {
     transaction.add(createATAResult.instruction);
   }
-  transaction.add(...mintInstruction.instructions);
+
+  if (mintTokens) {
+    const mintInstruction = createMintToInstruction({
+      provider: TEST_PROVIDER,
+      mint: tokenPubkey,
+      mintAuthorityKP: TEST_PAYER,
+      to: createATAResult.address,
+      amount: new u64(lots),
+    });
+    transaction.add(...mintInstruction.instructions);
+  }
+
   await TEST_PROVIDER.send(transaction);
   return createATAResult.address;
 }
