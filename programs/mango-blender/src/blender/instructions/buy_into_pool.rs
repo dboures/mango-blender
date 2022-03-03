@@ -16,7 +16,7 @@ use crate::helpers::*;
 declare_check_assert_macros!(SourceFileId::Processor);
 
 #[derive(Accounts)]
-pub struct Deposit<'info> {
+pub struct BuyIntoPool<'info> {
     pub mango_program: UncheckedAccount<'info>, // TODO
     #[account(mut, seeds = [pool.pool_name.as_ref(), pool.admin.as_ref()], bump)]
     pub pool: Account<'info, Pool>, // Validation??
@@ -31,8 +31,8 @@ pub struct Deposit<'info> {
     pub node_bank: UncheckedAccount<'info>, // TODO
     #[account(mut)]
     pub vault: UncheckedAccount<'info>, // TODO
-    #[account(mut, constraint = depositor_token_account.owner == depositor.key())]
-    pub depositor_token_account: Account<'info, TokenAccount>,
+    #[account(mut, constraint = depositor_quote_token_account.owner == depositor.key())]
+    pub depositor_quote_token_account: Account<'info, TokenAccount>,
     #[account(
         mut,
         seeds = [pool.pool_name.as_ref(), pool.admin.as_ref(), b"iou"],
@@ -48,7 +48,8 @@ pub struct Deposit<'info> {
     pub token_program: Program<'info, Token>,
 }
 
-pub fn handler(ctx: Context<Deposit>, quantity: u64, asset_index: u32) -> ProgramResult {
+/// A user "buys a percentage" of the mango pool by depositing quote token into the mango pool
+pub fn handler(ctx: Context<BuyIntoPool>, quantity: u64, asset_index: u32) -> ProgramResult {
     // handle deposit
     let deposit_instruction = MangoInstructions::deposit(
         ctx.accounts.mango_program.key,
@@ -59,7 +60,7 @@ pub fn handler(ctx: Context<Deposit>, quantity: u64, asset_index: u32) -> Progra
         ctx.accounts.root_bank.key,
         ctx.accounts.node_bank.key,
         ctx.accounts.vault.key,
-        ctx.accounts.depositor_token_account.to_account_info().key,
+        ctx.accounts.depositor_quote_token_account.to_account_info().key,
         u64::try_from(quantity).unwrap(),
     )
     .unwrap();
@@ -83,7 +84,7 @@ pub fn handler(ctx: Context<Deposit>, quantity: u64, asset_index: u32) -> Progra
             ctx.accounts.node_bank.to_account_info().clone(),
             ctx.accounts.vault.to_account_info().clone(),
             ctx.accounts
-                .depositor_token_account
+                .depositor_quote_token_account
                 .to_account_info()
                 .clone(),
         ],
@@ -119,7 +120,8 @@ pub fn handler(ctx: Context<Deposit>, quantity: u64, asset_index: u32) -> Progra
     let now_ts = clock.unix_timestamp as u64;
     mango_cache.check_valid(&mango_group, &active_assets, now_ts)?;
 
-    //TODO: check that asset index mint is the same as deposit_mint
+    //check that user is buying into pool with Quote token only
+    check!(mango_group.tokens[QUOTE_INDEX].mint == ctx.accounts.depositor_quote_token_account.mint, MangoErrorCode::InvalidToken)?;
 
     // Get value of deposit in quote native tokens
     let asset_price = mango_cache.get_price(token_index); // mango_cache price is interpreted as how many quote native tokens for 1 base native token

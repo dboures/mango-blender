@@ -1,5 +1,5 @@
 pub use create_pool::*;
-pub use deposit::*;
+pub use buy_into_pool::*;
 
 pub mod create_pool;
-pub mod deposit;
+pub mod buy_into_pool;

@@ -47,8 +47,6 @@ export const MANGO_PROG_ID = new PublicKey(
 export const MANGO_CONFIG_PATH = "./tests/fixtures/mangoConfig.json";
 
 export async function createMangoGroup(
-  
-  
   quoteToken: Token
 ): Promise<PublicKey> {
   const client = new MangoClient(TEST_PROVIDER.connection, MANGO_PROG_ID);

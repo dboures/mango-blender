@@ -193,7 +193,7 @@ describe("mango-blender", () => {
     assert.ok(mangoAccount.delegate.equals(TEST_PROVIDER.wallet.publicKey));
   });
 
-  it("allows a user to deposit QUOTE into the delegated mangoAccount", async () => {
+  it("allows a user to buy into the pool by depositing QUOTE into the delegated mangoAccount", async () => {
     const beforeWalletQuoteQuantity = new anchor.BN(5000000);
     const depositQuoteQuantity = new anchor.BN(1000000);
     const providerQuoteBefore = await getTokenAccount(TEST_PROVIDER, providerQuoteATA);
@@ -223,14 +223,14 @@ describe("mango-blender", () => {
     const openOrdersKeys = beforeMangoAccount.getOpenOrdersKeysInBasket();
     const remainingAccounts = openOrdersKeys.map((key) =>  {return { pubkey: key, isWritable: false, isSigner: false } })
 
-    const tx = await program.rpc.deposit(depositQuoteQuantity, tokenIndex, {
+    const tx = await program.rpc.buyIntoPool(depositQuoteQuantity, tokenIndex, {
       accounts: {
         mangoProgram: MANGO_PROG_ID,
         pool: poolAddress,
         mangoGroup: mangoGroupPubkey,
         mangoAccount: mangoAccountAddress,
         depositor: TEST_PROVIDER.wallet.publicKey,
-        depositorTokenAccount: providerQuoteATA,
+        depositorQuoteTokenAccount: providerQuoteATA,
         mangoCache: mangoCache.publicKey,
         rootBank: rootBanks[tokenIndex]?.publicKey,
         nodeBank: nodeBanks[0].publicKey,
@@ -268,13 +268,9 @@ describe("mango-blender", () => {
     totalQuoteNativeDeposited = totalQuoteNativeDeposited.add(depositQuoteQuantity)
   });
 
-  it("allows a user to deposit TOKEN_A into the delegated mangoAccount", async () => {
-    const beforeWalletAQuantity = new anchor.BN(5000000);
+  it("will fail if a user tries to buy into the pool using a non-quote token", async () => {
     const depositAQuantity = new anchor.BN(1000000);
-    const providerABefore = await getTokenAccount(TEST_PROVIDER, providerAATA);
-    assert.ok(providerABefore.amount.eq(beforeWalletAQuantity));
 
-    providerIouATA = await initializeProviderATA(poolIouAddress, 0, false);
     const providerIouBefore = await getTokenAccount(TEST_PROVIDER, providerIouATA);
     assert.ok(providerIouBefore.amount.eq(new anchor.BN(1000000)));
 
@@ -291,56 +287,36 @@ describe("mango-blender", () => {
 
     await keeperRefresh(client, group, mangoCache, rootBanks);
 
-    const beforeMangoAccount = await client.getMangoAccount(
-      mangoAccountAddress,
-      MANGO_PROG_ID
-    );
-    const openOrdersKeys = beforeMangoAccount.getOpenOrdersKeysInBasket();
-    const remainingAccounts = openOrdersKeys.map((key) =>  {return { pubkey: key, isWritable: false, isSigner: false } })
-
-    const tx = await program.rpc.deposit(depositAQuantity, tokenIndex, {
-      accounts: {
-        mangoProgram: MANGO_PROG_ID,
-        pool: poolAddress,
-        mangoGroup: mangoGroupPubkey,
-        mangoAccount: mangoAccountAddress,
-        depositor: TEST_PROVIDER.wallet.publicKey,
-        depositorTokenAccount: providerAATA,
-        mangoCache: mangoCache.publicKey,
-        rootBank: rootBanks[tokenIndex]?.publicKey,
-        nodeBank: nodeBanks[0].publicKey,
-        vault: nodeBanks[0].vault,
-        depositIouMint: poolIouAddress,
-        depositorIouTokenAccount: providerIouATA,
-        tokenProgram: TOKEN_PROGRAM_ID,
-      },
-      remainingAccounts,
-      signers: [TEST_PAYER],
-    });
-
-    //check tokenA subtracted from depositor
-    const providerAAfter = await getTokenAccount(TEST_PROVIDER, providerAATA);
-    assert.ok(
-      providerAAfter.amount.eq(beforeWalletAQuantity.sub(depositAQuantity))
-    );
-
-    //check tokenA in mangoAccount
     const mangoAccount = await client.getMangoAccount(
       mangoAccountAddress,
       MANGO_PROG_ID
     );
-    assert.ok(mangoAccount.deposits[tokenIndex].toNumber() === 1);
+    const openOrdersKeys = mangoAccount.getOpenOrdersKeysInBasket();
+    const remainingAccounts = openOrdersKeys.map((key) =>  {return { pubkey: key, isWritable: false, isSigner: false } })
 
-    // check IOU mint supply
-    const iouMintInfo = await getMintInfo(TEST_PROVIDER, poolIouAddress);
-    const totalIouSupply = depositAQuantity.mul(new anchor.BN(initialAPrice)).add(totalQuoteNativeDeposited) // (amount A deposited * price) + quote amount deposited prior
-    assert.ok(iouMintInfo.supply.eq(totalIouSupply));
-
-    // check depositor IOU amount
-    const providerIouAfter = await getTokenAccount(TEST_PROVIDER, providerIouATA);
-    assert.ok(
-      providerIouAfter.amount.eq(totalIouSupply)
-    );
-    totalQuoteNativeDeposited = totalQuoteNativeDeposited.add(depositAQuantity.mul(new anchor.BN(initialAPrice)));
+    await assert.rejects(async () => {
+      const txn = await program.rpc.buyIntoPool(depositAQuantity, tokenIndex, {
+        accounts: {
+          mangoProgram: MANGO_PROG_ID,
+          pool: poolAddress,
+          mangoGroup: mangoGroupPubkey,
+          mangoAccount: mangoAccountAddress,
+          depositor: TEST_PROVIDER.wallet.publicKey,
+          depositorQuoteTokenAccount: providerAATA,
+          mangoCache: mangoCache.publicKey,
+          rootBank: rootBanks[tokenIndex]?.publicKey,
+          nodeBank: nodeBanks[0].publicKey,
+          vault: nodeBanks[0].vault,
+          depositIouMint: poolIouAddress,
+          depositorIouTokenAccount: providerIouATA,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        },
+        remainingAccounts,
+        signers: [TEST_PAYER],
+      });
+    }, (err) => {
+      assert.ok(err.logs.includes("Program log: Custom program error: 0x8")) // Mango Invalid Token error
+      return true;
+    });
   });
 });

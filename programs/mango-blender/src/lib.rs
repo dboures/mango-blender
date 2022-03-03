@@ -26,7 +26,7 @@ pub mod mango_blender {
         )
     }
 
-    pub fn deposit(ctx: Context<Deposit>, quantity: u64, asset_index: u32) -> ProgramResult {
-        blender::instructions::deposit::handler(ctx, quantity, asset_index)
+    pub fn buy_into_pool(ctx: Context<BuyIntoPool>, quantity: u64, asset_index: u32) -> ProgramResult {
+        blender::instructions::buy_into_pool::handler(ctx, quantity, asset_index)
     }
 }
