@@ -32,7 +32,7 @@ pub struct CreatePool<'info> {
         bump = iou_mint_bump,
         payer = admin
     )]
-    pub deposit_iou_mint: Account<'info, Mint>,
+    pub pool_iou_mint: Account<'info, Mint>,
 
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
@@ -50,7 +50,7 @@ pub fn handler(
     ctx.accounts.pool.admin = *ctx.accounts.admin.key;
     ctx.accounts.pool.pool_bump = pool_bump;
     ctx.accounts.pool.iou_mint_bump = iou_mint_bump;
-    ctx.accounts.pool.iou_mint = ctx.accounts.deposit_iou_mint.key();
+    ctx.accounts.pool.iou_mint = ctx.accounts.pool_iou_mint.key();
 
     //cpi to create mango account
     let create_instruction = MangoInstructions::create_mango_account(

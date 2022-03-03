@@ -38,11 +38,11 @@ pub struct BuyIntoPool<'info> {
         seeds = [pool.pool_name.as_ref(), pool.admin.as_ref(), b"iou"],
         bump = pool.iou_mint_bump,
     )]
-    pub deposit_iou_mint: Account<'info, Mint>,
+    pub pool_iou_mint: Account<'info, Mint>,
 
     #[account(mut,
         associated_token::authority = depositor,
-        associated_token::mint = deposit_iou_mint
+        associated_token::mint = pool_iou_mint
     )]
     pub depositor_iou_token_account: Box<Account<'info, TokenAccount>>,
     pub token_program: Program<'info, Token>,
@@ -167,6 +167,7 @@ pub fn handler(ctx: Context<BuyIntoPool>, quantity: u64, asset_index: u32) -> Pr
         QUOTE_INDEX,
     );
     pool_value_quote += quote_value;
+    // TODO: what about perp orders???
     // msg!("naked quote_value: {:?}", quote_value);
 
     msg!("deposit_value_quote: {:?}", deposit_value_quote);
@@ -174,14 +175,14 @@ pub fn handler(ctx: Context<BuyIntoPool>, quantity: u64, asset_index: u32) -> Pr
 
     let mint_accounts = MintTo {
         to: ctx.accounts.depositor_iou_token_account.to_account_info(),
-        mint: ctx.accounts.deposit_iou_mint.to_account_info(),
+        mint: ctx.accounts.pool_iou_mint.to_account_info(),
         authority: ctx.accounts.pool.to_account_info(),
     };
     let token_program_ai = ctx.accounts.token_program.to_account_info();
     let iou_mint_ctx = CpiContext::new_with_signer(token_program_ai, mint_accounts, cpi_seed);
 
     // in case of first deposit
-    if ctx.accounts.deposit_iou_mint.supply == 0 {
+    if ctx.accounts.pool_iou_mint.supply == 0 {
         let mint_amount: u64 = deposit_value_quote
             .checked_floor()
             .unwrap()
@@ -191,7 +192,7 @@ pub fn handler(ctx: Context<BuyIntoPool>, quantity: u64, asset_index: u32) -> Pr
 
         token::mint_to(iou_mint_ctx, mint_amount)?;
     } else {
-        let outstanding_iou_tokens = I80F48::from_num(ctx.accounts.deposit_iou_mint.supply);
+        let outstanding_iou_tokens = I80F48::from_num(ctx.accounts.pool_iou_mint.supply);
         // note that pool_value_quote is always >= deposit_value_quote, since we already deposited above
         let mint_amount: u64 = ((deposit_value_quote * outstanding_iou_tokens)
             / (pool_value_quote - deposit_value_quote))

@@ -1,12 +1,9 @@
 // Code from Mango V3 that I wish was public
 // Really just a hacky implementation of MangoAccount.get_spot_val
-use anchor_lang::prelude::AccountInfo;
+use anchor_lang::prelude::*;
 use fixed::types::I80F48;
 use mango::error::MangoResult;
-use mango::state::load_open_orders;
-use mango::state::RootBankCache;
-use mango::state::MAX_TOKENS;
-use mango::state::ZERO_I80F48;
+use mango::state::{RootBankCache, MAX_TOKENS, MAX_PAIRS, ZERO_I80F48, load_open_orders };
 use mango::utils::split_open_orders;
 
 pub fn get_mango_account_base_net(
@@ -76,4 +73,17 @@ pub fn get_spot_val_in_quote(
             Ok((asks_base_net * price) + (base_locked * price + quote_free + quote_locked))
         }
     }
+}
+
+
+pub fn convert_open_orders_ais_to_keys(open_orders_ais: Vec<Option<&AccountInfo>>) -> [Pubkey; MAX_PAIRS] {
+    let mut result = [Pubkey::default(); MAX_PAIRS];
+    for (pos, open_orders_ai) in open_orders_ais.iter().enumerate() {
+        let key = match open_orders_ai {
+            Some(open_order) => *open_order.key,
+            None => Pubkey::default(),
+        };
+        result[pos] = key;
+    }
+    result
 }
