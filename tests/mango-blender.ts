@@ -357,98 +357,109 @@ describe("mango-blender", () => {
     );
   });
 
-  // it("will allow a user to withdraw anything", async () => {
-  //   const beforeWalletQuoteQuantity = new anchor.BN(4000000);
-  //   const withdrawQuoteQuantity = new anchor.BN(500000);
-  //   const providerQuoteBefore = await getTokenAccount(
-  //     TEST_PROVIDER,
-  //     providerQuoteATA
-  //   );
-  //   assert.ok(providerQuoteBefore.amount.eq(beforeWalletQuoteQuantity));
+  it("will allow a user to withdraw QUOTE", async () => {
+    const beforeWalletQuoteQuantity = new anchor.BN(4000000);
+    const withdrawQuoteQuantity = new anchor.BN(500000);
+    const providerQuoteBefore = await getTokenAccount(
+      TEST_PROVIDER,
+      providerQuoteATA
+    );
+    assert.ok(providerQuoteBefore.amount.eq(beforeWalletQuoteQuantity));
 
-  //   const providerIouBefore = await getTokenAccount(
-  //     TEST_PROVIDER,
-  //     providerIouATA
-  //   );
-  //   assert.ok(providerIouBefore.amount.eq(new anchor.BN(1000000)));
+    const providerIouBefore = await getTokenAccount(
+      TEST_PROVIDER,
+      providerIouATA
+    );
+    assert.ok(providerIouBefore.amount.eq(new anchor.BN(1000000)));
 
-  //   //assert mangoAccount before quantity
+    //assert mangoAccount before quantity
 
-  //   const group = await client.getMangoGroup(mangoGroupPubkey);
-  //   const rootBanks = await group.loadRootBanks(TEST_PROVIDER.connection);
-  //   const tokenIndex = group.getTokenIndex(quoteToken.publicKey);
-  //   const nodeBanks = await rootBanks[tokenIndex]?.loadNodeBanks(
-  //     TEST_PROVIDER.connection
-  //   );
-  //   const mangoCache = await group.loadCache(TEST_PROVIDER.connection);
-  //   if (!nodeBanks) {
-  //     throw Error;
-  //   }
+    const group = await client.getMangoGroup(mangoGroupPubkey);
+    const rootBanks = await group.loadRootBanks(TEST_PROVIDER.connection);
+    const tokenIndex = group.getTokenIndex(quoteToken.publicKey);
+    const nodeBanks = await rootBanks[tokenIndex]?.loadNodeBanks(
+      TEST_PROVIDER.connection
+    );
+    const mangoCache = await group.loadCache(TEST_PROVIDER.connection);
+    if (!nodeBanks) {
+      throw Error;
+    }
 
-  //   await keeperRefresh(client, group, mangoCache, rootBanks);
+    await keeperRefresh(client, group, mangoCache, rootBanks);
 
-  //   const beforeMangoAccount = await client.getMangoAccount(
-  //     mangoAccountAddress,
-  //     MANGO_PROG_ID
-  //   );
-  //   const openOrdersKeys = beforeMangoAccount.getOpenOrdersKeysInBasket();
-  //   const remainingAccounts = openOrdersKeys.map((key) => {
-  //     return { pubkey: key, isWritable: false, isSigner: false };
-  //   });
+    const beforeMangoAccount = await client.getMangoAccount(
+      mangoAccountAddress,
+      MANGO_PROG_ID
+    );
+    const openOrdersKeys = beforeMangoAccount.getOpenOrdersKeysInBasket();
+    const remainingAccounts = openOrdersKeys.map((key) => {
+      return { pubkey: key, isWritable: false, isSigner: false };
+    });
 
-  //   const txn = await program.rpc.withdrawFromPool(withdrawQuoteQuantity, {
-  //     accounts: {
-  //       mangoProgram: MANGO_PROG_ID,
-  //       pool: poolAddress,
-  //       mangoGroup: mangoGroupPubkey,
-  //       mangoGroupSigner: group.signerKey,
-  //       mangoAccount: mangoAccountAddress,
-  //       withdrawer: TEST_PROVIDER.wallet.publicKey,
-  //       withdrawerTokenAccount: providerQuoteATA,
-  //       mangoCache: mangoCache.publicKey,
-  //       rootBank: rootBanks[tokenIndex]?.publicKey,
-  //       nodeBank: nodeBanks[0].publicKey,
-  //       vault: nodeBanks[0].vault,
-  //       poolIouMint: poolIouAddress,
-  //       withdrawerIouTokenAccount: providerIouATA,
-  //       tokenProgram: TOKEN_PROGRAM_ID,
-  //     },
-  //     remainingAccounts,
-  //     signers: [TEST_PAYER],
-  //   });
+    const txn = await program.rpc.withdrawFromPool(withdrawQuoteQuantity, tokenIndex, {
+      accounts: {
+        mangoProgram: MANGO_PROG_ID,
+        pool: poolAddress,
+        mangoGroup: mangoGroupPubkey,
+        mangoGroupSigner: group.signerKey,
+        mangoAccount: mangoAccountAddress,
+        withdrawer: TEST_PROVIDER.wallet.publicKey,
+        withdrawerTokenAccount: providerQuoteATA,
+        mangoCache: mangoCache.publicKey,
+        rootBank: rootBanks[tokenIndex]?.publicKey,
+        nodeBank: nodeBanks[0].publicKey,
+        vault: nodeBanks[0].vault,
+        poolIouMint: poolIouAddress,
+        withdrawerIouTokenAccount: providerIouATA,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      },
+      remainingAccounts,
+      signers: [TEST_PAYER],
+    });
 
-  //   //check quoteToken subtracted from depositor
-  //   const providerQuoteAfter = await getTokenAccount(
-  //     TEST_PROVIDER,
-  //     providerQuoteATA
-  //   );
-  //   assert.ok(
-  //     providerQuoteAfter.amount.eq(
-  //       beforeWalletQuoteQuantity.add(withdrawQuoteQuantity)
-  //     )
-  //   );
-  //   console.log(providerQuoteAfter.amount.toNumber())
+    //check quoteToken subtracted from depositor
+    const providerQuoteAfter = await getTokenAccount(
+      TEST_PROVIDER,
+      providerQuoteATA
+    );
+    assert.ok(
+      providerQuoteAfter.amount.eq(
+        beforeWalletQuoteQuantity.add(withdrawQuoteQuantity)
+      )
+    );
+    console.log(providerQuoteAfter.amount.toNumber())
 
-  //   //check quoteToken in mangoAccount
-  //   const mangoAccount = await client.getMangoAccount(
-  //     mangoAccountAddress,
-  //     MANGO_PROG_ID
-  //   );
-  //   assert.ok(mangoAccount.deposits[tokenIndex].toNumber() === 0.5);
+    //check quoteToken in mangoAccount
+    const mangoAccount = await client.getMangoAccount(
+      mangoAccountAddress,
+      MANGO_PROG_ID
+    );
+    assert.ok(mangoAccount.deposits[tokenIndex].toNumber() === 0.5);
 
-  // //   // check IOU mint supply
-  // //   const iouMintInfo = await getMintInfo(TEST_PROVIDER, poolIouAddress);
-  // //   assert.ok(iouMintInfo.supply.eq(withdrawQuoteQuantity));
+    // check IOU mint supply
+    const iouMintInfo = await getMintInfo(TEST_PROVIDER, poolIouAddress);
+    assert.ok(iouMintInfo.supply.eq(withdrawQuoteQuantity));
 
-  // //   // check withdrawer IOU amount
-  // //   const providerIouAfter = await getTokenAccount(
-  // //     TEST_PROVIDER,
-  // //     providerIouATA
-  // //   );
-  // //   assert.ok(providerIouAfter.amount.eq(iouMintInfo.supply));
-  // //   totalQuoteNativeDeposited =
-  // //     totalQuoteNativeDeposited.add(withdrawQuoteQuantity);
+    // check withdrawer IOU amount
+    const providerIouAfter = await getTokenAccount(
+      TEST_PROVIDER,
+      providerIouATA
+    );
+    assert.ok(providerIouAfter.amount.eq(iouMintInfo.supply));
+    totalQuoteNativeDeposited =
+      totalQuoteNativeDeposited.sub(withdrawQuoteQuantity);
+  });
+
+  // it("will allow a user to withdraw any token", async () => {
   // });
 
+  // it("will prevent withdraw if too leveraged (perp order)", async () => {
+  // });
+
+  // it("will allow users to withdraw up to max leverage??? (spot)", async () => {
+  // });
+
+  // it("withdrawer will lose money if mangoAccount decreases in value", async () => {
+  // });
 
 });

@@ -50,6 +50,7 @@ pub struct BuyIntoPool<'info> {
 
 /// A user "buys a percentage" of the mango pool by depositing quote token into the mango pool
 pub fn handler(ctx: Context<BuyIntoPool>, quantity: u64, asset_index: u32) -> ProgramResult {
+    // TODO: asset and token_index can be removed if only quote deposits
     // handle deposit
     let deposit_instruction = MangoInstructions::deposit(
         ctx.accounts.mango_program.key,
@@ -60,7 +61,10 @@ pub fn handler(ctx: Context<BuyIntoPool>, quantity: u64, asset_index: u32) -> Pr
         ctx.accounts.root_bank.key,
         ctx.accounts.node_bank.key,
         ctx.accounts.vault.key,
-        ctx.accounts.depositor_quote_token_account.to_account_info().key,
+        ctx.accounts
+            .depositor_quote_token_account
+            .to_account_info()
+            .key,
         u64::try_from(quantity).unwrap(),
     )
     .unwrap();
@@ -121,7 +125,10 @@ pub fn handler(ctx: Context<BuyIntoPool>, quantity: u64, asset_index: u32) -> Pr
     mango_cache.check_valid(&mango_group, &active_assets, now_ts)?;
 
     //check that user is buying into pool with Quote token only
-    check!(mango_group.tokens[QUOTE_INDEX].mint == ctx.accounts.depositor_quote_token_account.mint, MangoErrorCode::InvalidToken)?;
+    check!(
+        mango_group.tokens[QUOTE_INDEX].mint == ctx.accounts.depositor_quote_token_account.mint,
+        MangoErrorCode::InvalidToken
+    )?;
 
     // Get value of deposit in quote native tokens
     let asset_price = mango_cache.get_price(token_index); // mango_cache price is interpreted as how many quote native tokens for 1 base native token
@@ -129,8 +136,8 @@ pub fn handler(ctx: Context<BuyIntoPool>, quantity: u64, asset_index: u32) -> Pr
     check!(deposit_quantity > 0, MangoErrorCode::Default)?;
     let deposit_value_quote = asset_price.checked_mul(deposit_quantity).unwrap();
 
-    // TODO: refactor into separate function? Is this possible with the stack size limit? idk
-    // calculate total value of pool at current price (including open orders) 
+    // TODO: refactor into separate function? Is this possible with the stack size limit? probably but idk how
+    // calculate total value of pool at current price (including open orders)
     let open_orders_ais =
         mango_account.checked_unpack_open_orders(&mango_group, &ctx.remaining_accounts)?;
     let mango_deposits = mango_account.deposits;
@@ -164,7 +171,6 @@ pub fn handler(ctx: Context<BuyIntoPool>, quantity: u64, asset_index: u32) -> Pr
             pool_value_quote += market_value_quote;
         }
 
-
         //perp
         if active_assets.perps[i] {
             let (perp_base, perp_quote) = mango_account.perp_accounts[i].get_val(
@@ -174,7 +180,6 @@ pub fn handler(ctx: Context<BuyIntoPool>, quantity: u64, asset_index: u32) -> Pr
             )?;
             pool_value_quote += perp_base + perp_quote;
         }
-
     }
 
     //quote

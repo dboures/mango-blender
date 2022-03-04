@@ -3,7 +3,9 @@
 use anchor_lang::prelude::*;
 use fixed::types::I80F48;
 use mango::error::MangoResult;
-use mango::state::{RootBankCache, MAX_TOKENS, MAX_PAIRS, ZERO_I80F48, load_open_orders };
+use mango::state::{
+    load_open_orders, RootBankCache, MAX_PAIRS, MAX_TOKENS, QUOTE_INDEX, ZERO_I80F48,
+};
 use mango::utils::split_open_orders;
 
 pub fn get_mango_account_base_net(
@@ -75,15 +77,64 @@ pub fn get_spot_val_in_quote(
     }
 }
 
+// // Too fat for the stack
+// pub fn calculate_pool_value (mango_account: MangoAccount, mango_group: MangoGroup, mango_cache: MangoCache, open_orders_ais: Vec<Option<&AccountInfo>>, active_assets: UserActiveAssets) -> I80F48 {
+//     let mut pool_value_quote = ZERO_I80F48;
 
-pub fn convert_open_orders_ais_to_keys(open_orders_ais: Vec<Option<&AccountInfo>>) -> [Pubkey; MAX_PAIRS] {
+//     for i in 0..mango_group.num_oracles {
+//         //spot
+//         if active_assets.spot[i] {
+//             let base_net = get_mango_account_base_net(
+//                 mango_account.deposits,
+//                 mango_account.borrows,
+//                 mango_cache.root_bank_cache[i],
+//                 i,
+//             );
+//             // msg!("i: {:?}", i);
+//             // msg!("base_net: {:?}", base_net);
+
+//             let price = mango_cache.get_price(i);
+//             // msg!("price: {:?}", price);
+//             let market_value_quote = get_spot_val_in_quote(
+//                 base_net,
+//                 price,
+//                 open_orders_ais[i],
+//                 mango_account.in_margin_basket[i],
+//             )
+//             .unwrap();
+//             // msg!("quote val: {:?}", market_value_quote);
+//             pool_value_quote += market_value_quote;
+//         }
+
+//         //perp
+//         if active_assets.perps[i] {
+//             let (perp_base, perp_quote) = mango_account.perp_accounts[i].get_val(
+//                 &mango_group.perp_markets[i],
+//                 &mango_cache.perp_market_cache[i],
+//                 mango_cache.price_cache[i].price,
+//             ).unwrap();
+//             pool_value_quote += perp_base + perp_quote;
+//         }
+
+//     }
+
+//     //quote
+//     let quote_value = get_mango_account_base_net(
+//         mango_account.deposits,
+//         mango_account.borrows,
+//         mango_cache.root_bank_cache[QUOTE_INDEX],
+//         QUOTE_INDEX,
+//     );
+//     pool_value_quote += quote_value;
+//     pool_value_quote
+// }
+
+pub fn convert_remaining_accounts_to_open_orders_keys(
+    remaining_accounts: &[AccountInfo],
+) -> [Pubkey; MAX_PAIRS] {
     let mut result = [Pubkey::default(); MAX_PAIRS];
-    for (pos, open_orders_ai) in open_orders_ais.iter().enumerate() {
-        let key = match open_orders_ai {
-            Some(open_order) => *open_order.key,
-            None => Pubkey::default(),
-        };
-        result[pos] = key;
+    for (pos, account) in remaining_accounts.iter().enumerate() {
+        result[pos] = *account.key;
     }
     result
 }
