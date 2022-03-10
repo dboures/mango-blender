@@ -1,6 +1,7 @@
 import { BN } from "@project-serum/anchor";
-import { DexInstructions, TokenInstructions } from "@project-serum/serum";
+import { DexInstructions, Market, TokenInstructions } from "@project-serum/serum";
 import { getVaultOwnerAndNonce } from "@project-serum/swap/lib/utils";
+import { SolanaProvider } from "@saberhq/solana-contrib";
 import { MintInfo, Token, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import {
   PublicKey,
@@ -246,4 +247,19 @@ async function prepareCreateStateAccountsInstruction(
       space
     ),
   });
+}
+
+export async function consumeEvents(
+  provider: SolanaProvider,
+  market: Market,
+  openOrdersPubkeys: PublicKey[]
+): Promise<void> {
+  const transaction = new Transaction();
+  transaction.add(
+    market.makeConsumeEventsInstruction(
+      openOrdersPubkeys,
+      100
+    )
+  );
+  await provider.send(transaction);
 }

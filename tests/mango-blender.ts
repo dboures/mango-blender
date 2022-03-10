@@ -15,6 +15,7 @@ import {
 import { getMintInfo, NodeWallet } from "@project-serum/common";
 import { MangoBlender } from "../target/types/mango_blender";
 import {
+  addPerpMarket,
   addSpotMarket,
   createMangoGroup,
   createToken,
@@ -22,10 +23,13 @@ import {
   initPriceOracles,
   keeperRefresh,
   MANGO_PROG_ID,
+  placeSpotOrder,
+  SERUM_PROG_ID,
   setOraclePrice,
 } from "./setupMango";
 import {
   Config,
+  getAllMarkets,
   MangoClient,
   QUOTE_INDEX,
   uiToNative,
@@ -37,7 +41,9 @@ import {
   getTokenAccount,
   TokenAccountLayout,
 } from "@saberhq/token-utils";
-import { setupSpotMarket } from "./setupSerum";
+import { consumeEvents, MarketInfo, setupSpotMarket } from "./setupSerum";
+import { Market } from "@project-serum/serum/lib/market";
+import { checkIouMintSupply, checkMangoAccountTokenAmount, checkProviderTokenAmount } from "./assertions";
 const assert = require("assert");
 const utf8 = anchor.utils.bytes.utf8;
 
@@ -67,6 +73,7 @@ describe("mango-blender", () => {
   let tokenA: Token;
   let tokenB: Token;
   let quoteToken: Token;
+  let dummyMngoToken: Token;
 
   let providerAATA: PublicKey;
   let providerBATA: PublicKey;
@@ -78,6 +85,9 @@ describe("mango-blender", () => {
   let initialBPrice = 0.5;
 
   let totalQuoteNativeDeposited = new anchor.BN(0);
+
+  let marketA: MarketInfo;
+  let marketB: MarketInfo;
 
   let mangoGroupPubkey: PublicKey;
   let client: MangoClient;
@@ -107,6 +117,7 @@ describe("mango-blender", () => {
     quoteToken = await createToken(6);
     tokenA = await createToken(6);
     tokenB = await createToken(6);
+    dummyMngoToken = await createToken(6);
 
     mangoGroupPubkey = await createMangoGroup(quoteToken);
 
@@ -119,13 +130,13 @@ describe("mango-blender", () => {
     await setOraclePrice(client, "BBBB", initialBPrice);
 
     //create Serum markets
-    const marketA = await setupSpotMarket(
+    marketA = await setupSpotMarket(
       tokenA.publicKey,
       quoteToken.publicKey,
       1,
       1
     );
-    const marketB = await setupSpotMarket(
+    marketB = await setupSpotMarket(
       tokenB.publicKey,
       quoteToken.publicKey,
       1,
@@ -135,6 +146,8 @@ describe("mango-blender", () => {
     //add Serum markets to Mango so we can deposit tokens
     await addSpotMarket(client, "AAAA", marketA.market, tokenA.publicKey);
     await addSpotMarket(client, "BBBB", marketB.market, tokenB.publicKey);
+
+    await addPerpMarket(client, "AAAA", dummyMngoToken.publicKey);
 
     [mangoAccountAddress, mangoAccountBump] =
       await PublicKey.findProgramAddress(
@@ -198,27 +211,20 @@ describe("mango-blender", () => {
     //check mangoAccount has been initialized with correct delegate
     const mangoAccount = await client.getMangoAccount(
       mangoAccountAddress,
-      MANGO_PROG_ID
+      SERUM_PROG_ID
     );
     assert.ok(mangoAccount.metaData.isInitialized);
     assert.ok(mangoAccount.delegate.equals(TEST_PROVIDER.wallet.publicKey));
   });
 
   it("allows a user to buy into the pool by depositing QUOTE into the delegated mangoAccount", async () => {
-    const beforeWalletQuoteQuantity = new anchor.BN(5000000);
-    const depositQuoteQuantity = new anchor.BN(1000000);
-    const providerQuoteBefore = await getTokenAccount(
-      TEST_PROVIDER,
-      providerQuoteATA
-    );
-    assert.ok(providerQuoteBefore.amount.eq(beforeWalletQuoteQuantity));
-
+    const depositQuoteQuantity = new anchor.BN(2000000);
     providerIouATA = await initializeProviderATA(poolIouAddress, 0, false);
-    const providerIouBefore = await getTokenAccount(
-      TEST_PROVIDER,
-      providerIouATA
-    );
-    assert.ok(providerIouBefore.amount.eq(ZERO_BN));
+
+    // check IOU mint supply
+    await checkIouMintSupply(poolIouAddress, ZERO_BN);
+    //check depositor IOU amount
+    await checkProviderTokenAmount(providerQuoteATA, new anchor.BN(5000000));
 
     const group = await client.getMangoGroup(mangoGroupPubkey);
     const rootBanks = await group.loadRootBanks(TEST_PROVIDER.connection);
@@ -234,7 +240,7 @@ describe("mango-blender", () => {
 
     const beforeMangoAccount = await client.getMangoAccount(
       mangoAccountAddress,
-      MANGO_PROG_ID
+      SERUM_PROG_ID
     );
     const openOrdersKeys = beforeMangoAccount.getOpenOrdersKeysInBasket();
     const remainingAccounts = openOrdersKeys.map((key) => {
@@ -260,53 +266,22 @@ describe("mango-blender", () => {
       remainingAccounts,
       signers: [TEST_PAYER],
     });
-
-    //check quoteToken subtracted from depositor
-    const providerQuoteAfter = await getTokenAccount(
-      TEST_PROVIDER,
-      providerQuoteATA
-    );
-    assert.ok(
-      providerQuoteAfter.amount.eq(
-        beforeWalletQuoteQuantity.sub(depositQuoteQuantity)
-      )
-    );
-
-    //check quoteToken in mangoAccount
-    const mangoAccount = await client.getMangoAccount(
-      mangoAccountAddress,
-      MANGO_PROG_ID
-    );
-    assert.ok(mangoAccount.deposits[QUOTE_INDEX].toNumber() === 1);
-
+    // check provider QUOTE amount
+    await checkProviderTokenAmount(providerQuoteATA, new anchor.BN(3000000));
+    // check mangoAccount QUOTE amount
+    await checkMangoAccountTokenAmount(mangoAccountAddress, QUOTE_INDEX, 2);
     // check IOU mint supply
-    const iouMintInfo = await getMintInfo(TEST_PROVIDER, poolIouAddress);
-    assert.ok(iouMintInfo.supply.eq(depositQuoteQuantity));
-
-    // check depositor IOU amount
-    const providerIouAfter = await getTokenAccount(
-      TEST_PROVIDER,
-      providerIouATA
-    );
-    assert.ok(providerIouAfter.amount.eq(iouMintInfo.supply));
-    totalQuoteNativeDeposited =
-      totalQuoteNativeDeposited.add(depositQuoteQuantity);
+    await checkIouMintSupply(poolIouAddress, depositQuoteQuantity);
+    //check provider IOU amount
+    await checkProviderTokenAmount(providerIouATA, depositQuoteQuantity);
   });
 
   it("will allow a user to withdraw QUOTE", async () => {
-    const beforeWalletQuoteQuantity = new anchor.BN(4000000);
     const withdrawQuoteQuantity = new anchor.BN(500000);
-    const providerQuoteBefore = await getTokenAccount(
-      TEST_PROVIDER,
-      providerQuoteATA
-    );
-    assert.ok(providerQuoteBefore.amount.eq(beforeWalletQuoteQuantity));
-
-    const providerIouBefore = await getTokenAccount(
-      TEST_PROVIDER,
-      providerIouATA
-    );
-    assert.ok(providerIouBefore.amount.eq(new anchor.BN(1000000)));
+    // check provider QUOTE amount
+    await checkProviderTokenAmount(providerQuoteATA, new anchor.BN(3000000));
+    //check provider IOU amount
+    await checkProviderTokenAmount(providerIouATA, new anchor.BN(2000000));
 
     const group = await client.getMangoGroup(mangoGroupPubkey);
     const rootBanks = await group.loadRootBanks(TEST_PROVIDER.connection);
@@ -320,12 +295,12 @@ describe("mango-blender", () => {
 
     await keeperRefresh(client, group, mangoCache, rootBanks);
 
+    // check mangoAccount QUOTE amount
+    await checkMangoAccountTokenAmount(mangoAccountAddress, QUOTE_INDEX, 2);
     const beforeMangoAccount = await client.getMangoAccount(
       mangoAccountAddress,
-      MANGO_PROG_ID
+      SERUM_PROG_ID
     );
-    assert.ok(beforeMangoAccount.deposits[QUOTE_INDEX].toNumber() === 1);
-
     const openOrdersKeys = beforeMangoAccount.getOpenOrdersKeysInBasket();
     const remainingAccounts = openOrdersKeys.map((key) => {
       return { pubkey: key, isWritable: false, isSigner: false };
@@ -352,41 +327,64 @@ describe("mango-blender", () => {
       signers: [TEST_PAYER],
     });
 
-    //check quoteToken subtracted from depositor
-    const providerQuoteAfter = await getTokenAccount(
-      TEST_PROVIDER,
-      providerQuoteATA
-    );
-    assert.ok(
-      providerQuoteAfter.amount.eq(
-        beforeWalletQuoteQuantity.add(withdrawQuoteQuantity)
-      )
-    );
-    console.log(providerQuoteAfter.amount.toNumber())
-
-    //check quoteToken in mangoAccount
-    const mangoAccount = await client.getMangoAccount(
-      mangoAccountAddress,
-      MANGO_PROG_ID
-    );
-    assert.ok(mangoAccount.deposits[QUOTE_INDEX].toNumber() === 0.5);
-
+    // check provider QUOTE amount
+    await checkProviderTokenAmount(providerQuoteATA, new anchor.BN(3500000));
+    // check mangoAccount QUOTE amount
+    await checkMangoAccountTokenAmount(mangoAccountAddress, QUOTE_INDEX, 1.5);
     // check IOU mint supply
-    const iouMintInfo = await getMintInfo(TEST_PROVIDER, poolIouAddress);
-    assert.ok(iouMintInfo.supply.eq(withdrawQuoteQuantity));
-
-    // check withdrawer IOU amount
-    const providerIouAfter = await getTokenAccount(
-      TEST_PROVIDER,
-      providerIouATA
-    );
-    assert.ok(providerIouAfter.amount.eq(iouMintInfo.supply));
-    totalQuoteNativeDeposited =
-      totalQuoteNativeDeposited.sub(withdrawQuoteQuantity);
+    await checkIouMintSupply(poolIouAddress, new anchor.BN(1500000));
+    //check provider IOU amount
+    await checkProviderTokenAmount(providerIouATA, new anchor.BN(1500000));
   });
 
-  // it("allows delegate to make a trade normally", async () => {
-  // });
+  it("allows delegate to trade on serum normally", async () => {
+      const market = await Market.load(TEST_PROVIDER.connection, marketA.market, {}, SERUM_PROG_ID);
+      const owner = new Account(TEST_PAYER.secretKey)
+
+      // "someone else" places an order via serum (owner used for simplicity)
+      await market.placeOrder(TEST_PROVIDER.connection, {
+        owner: new Account(TEST_PAYER.secretKey),
+        payer: providerAATA,
+        side: "sell",
+        price: 1,
+        size: 1,
+        feeDiscountPubkey: null,
+      });
+
+      const group = await client.getMangoGroup(mangoGroupPubkey);
+      const rootBanks = await group.loadRootBanks(TEST_PROVIDER.connection);
+      const nodeBanks = await rootBanks[QUOTE_INDEX]?.loadNodeBanks(
+        TEST_PROVIDER.connection
+      );
+      const mangoCache = await group.loadCache(TEST_PROVIDER.connection);
+      if (!nodeBanks) {
+        throw Error;
+      }
+  
+      await keeperRefresh(client, group, mangoCache, rootBanks);
+
+      const tokenIndex = group.getTokenIndex(tokenA.publicKey);
+      // mangoAccount places matching order
+      const mangoAccount = await client.getMangoAccount(
+        mangoAccountAddress,
+        SERUM_PROG_ID
+      );
+      await client.placeSpotOrder2(group, mangoAccount, market, owner, "buy", 1, 1, "limit", new anchor.BN(1234), false);
+    
+      // crank the serum dex (match orders)
+      const events = await market.loadEventQueue(TEST_PROVIDER.connection);
+      const openOrdersPubkeys = events.map((e) => e.openOrders);
+      await consumeEvents(TEST_PROVIDER, market, openOrdersPubkeys);
+    
+      // Mango settle funds
+      await client.settleFunds(group, mangoAccount, owner, market);
+
+      // check mangoAccount QUOTE amount
+      await checkMangoAccountTokenAmount(mangoAccountAddress, QUOTE_INDEX, 0.4996799999999979); // Serum fees
+      // check mangoAccount AAAA amount
+      await checkMangoAccountTokenAmount(mangoAccountAddress, tokenIndex, 1);
+        
+  });
 
     // // TODO: move this test to the end so that there are other tokens in MangoAccount (fails bc nodebank only has quote rn)
   // it("will fail if a user tries to buy into the pool using a non-quote token", async () => {
@@ -413,7 +411,7 @@ describe("mango-blender", () => {
 
   //   const mangoAccount = await client.getMangoAccount(
   //     mangoAccountAddress,
-  //     MANGO_PROG_ID
+  //     SERUM_PROG_ID
   //   );
   //   const openOrdersKeys = mangoAccount.getOpenOrdersKeysInBasket();
   //   const remainingAccounts = openOrdersKeys.map((key) => {

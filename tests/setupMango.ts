@@ -1,16 +1,27 @@
 import {
+  BN,
   Cluster,
   Config,
+  createAccountInstruction,
   getOracleBySymbol,
+  getPerpMarketByBaseSymbol,
   getSpotMarketByBaseSymbol,
   getTokenBySymbol,
   GroupConfig,
+  makeInitSpotOpenOrdersInstruction,
+  makePlaceSpotOrderInstruction,
+  MangoAccount,
   MangoCache,
   MangoClient,
   MangoGroup,
+  nativeToUi,
   OracleConfig,
+  QUOTE_INDEX,
   RootBank,
+  uiToNative,
+  WalletAdapter,
   zeroKey,
+  ZERO_BN,
 } from "@blockworks-foundation/mango-client";
 import { SolanaProvider } from "@saberhq/solana-contrib";
 import {
@@ -19,16 +30,17 @@ import {
   PublicKey,
   SystemProgram,
   Transaction,
+  TransactionSignature,
 } from "@solana/web3.js";
 import { AccountLayout, Token, TOKEN_PROGRAM_ID, u64 } from "@solana/spl-token";
 import { createMintToInstruction, getOrCreateATA } from "@saberhq/token-utils";
 import * as fs from "fs";
-import { Market } from "@project-serum/serum";
+import { getFeeRates, getFeeTier, Market, OpenOrders } from "@project-serum/serum";
 import { TEST_PAYER, TEST_PROVIDER } from "./mango-blender";
 
 // These params typically differ across currencies (and Spot vs Perp) based on risk
 // Since this is just for simple testing, it's ok to reuse them for everything
-const validInterval = 100; // the interval where caches are no longer valid (UNIX timestamp)
+const validInterval = 10000; // the interval where caches are no longer valid (UNIX timestamp)
 const optimalUtil = 0.7; // optimal utilization interest rate param for currency
 const optimalRate = 0.06; // optimal interest rate param for currency
 const maxRate = 1.5; // max interest rate param for currency
@@ -317,6 +329,103 @@ export async function addSpotMarket(
   console.log(`${baseSymbol}/${groupConfig.quoteSymbol} spot market added`);
 }
 
+  // The Mango program has mintPk hardcoded in, the mint check must be disabled for local testing
+  // https://github.com/blockworks-foundation/mango-v3/blob/408e0bc44e42b344fb6e9c1c127d39d0569c567f/program/src/state.rs#L2127
+  export async function addPerpMarket(
+    client: MangoClient,
+    symbol: string,
+    mngoMintPubkey: PublicKey,
+  ) {
+    const config = readConfig();
+    const groupConfig = config.groups[0];
+
+    let group = await client.getMangoGroup(groupConfig.publicKey);
+    const makerFee = 0.0;
+    const takerFee = 0.0005;
+    const baseLotSize = 1;
+    const quoteLotSize = 1;
+    const maxNumEvents = 256;
+    const rate = 0;
+    const maxDepthBps = 200;
+    const targetPeriodLength = 3600;
+    const mngoPerPeriod = 0;
+
+    const oracleDesc = getOracleBySymbol(groupConfig, symbol) as OracleConfig;
+    const marketIndex = group.getOracleIndex(oracleDesc.publicKey);
+
+    // Adding perp market
+    let nativeMngoPerPeriod = 0;
+    if (rate !== 0) {
+      const token = getTokenBySymbol(groupConfig, 'MNGO');
+      if (token === undefined) {
+        throw new Error('MNGO not found in group config');
+      } else {
+        nativeMngoPerPeriod = uiToNative(
+          mngoPerPeriod,
+          token.decimals,
+        ).toNumber();
+      }
+    }
+
+    await client.createPerpMarket(
+      group,
+      oracleDesc.publicKey,
+      mngoMintPubkey,
+      TEST_PAYER as unknown as Account,
+      maintLeverage,
+      initLeverage,
+      liquidationFee,
+      makerFee,
+      takerFee,
+      baseLotSize,
+      quoteLotSize,
+      maxNumEvents,
+      rate,
+      maxDepthBps,
+      targetPeriodLength,
+      nativeMngoPerPeriod,
+      1, //todo had to add this exp argument - not sure what it should be
+      1,
+      0,
+      6
+    );
+
+    group = await client.getMangoGroup(groupConfig.publicKey);
+    const perpMarketPubkey = group.perpMarkets[marketIndex].perpMarket;
+    const baseDecimals = getTokenBySymbol(groupConfig, symbol)
+      ?.decimals as number;
+    const quoteDecimals = getTokenBySymbol(groupConfig, groupConfig.quoteSymbol)
+      ?.decimals as number;
+    const market = await client.getPerpMarket(
+      perpMarketPubkey,
+      baseDecimals,
+      quoteDecimals,
+    );
+
+    const marketDesc = {
+      name: `${symbol}-PERP`,
+      publicKey: perpMarketPubkey,
+      baseSymbol: symbol,
+      baseDecimals,
+      quoteDecimals,
+      marketIndex,
+      bidsKey: market.bids,
+      asksKey: market.asks,
+      eventsKey: market.eventQueue,
+    };
+
+    const marketConfig = getPerpMarketByBaseSymbol(groupConfig, symbol);
+    if (marketConfig) {
+      Object.assign(marketConfig, marketDesc);
+    } else {
+      groupConfig.perpMarkets.push(marketDesc);
+    }
+
+    config.storeGroup(groupConfig);
+    writeConfig(config);
+    console.log(`${symbol}/${groupConfig.quoteSymbol} perp market added`);
+  }
+
 
 export async function keeperRefresh(client: MangoClient, mangoGroup: MangoGroup, mangoCache: MangoCache, rootBanks: RootBank[]): Promise<void> {
   const rootBankPubkeys = rootBanks
@@ -330,5 +439,12 @@ export async function keeperRefresh(client: MangoClient, mangoGroup: MangoGroup,
     TEST_PAYER as unknown as Account
   );
 
-  await client.cachePrices(mangoGroup.publicKey, mangoCache.publicKey, mangoGroup.oracles, TEST_PAYER as unknown as Account);
+  const config = readConfig();
+  const groupConfig = config.groups[0];
+  const perpMarketPubkeys = groupConfig.perpMarkets.map(mkt => mkt.publicKey);
+
+  await Promise.all([
+    client.cachePrices(mangoGroup.publicKey, mangoCache.publicKey, mangoGroup.oracles, TEST_PAYER as unknown as Account),
+    client.cachePerpMarkets(mangoGroup.publicKey, mangoCache.publicKey, perpMarketPubkeys, TEST_PAYER as unknown as Account)
+  ]);
 }
