@@ -20,11 +20,17 @@ export async function checkProviderTokenAmount(providerTokenATA: PublicKey, expe
       assert.ok(providerIouAmount.amount.eq(expectedAmount));
 }
 
-export async function checkMangoAccountTokenAmount(mangoAccountAddress: PublicKey, tokenIndex: number, expectedUiAmount: number) {
+export async function checkMangoAccountTokenAmount(mangoAccountAddress: PublicKey, tokenIndex: number, expectedUiAmount: number, exact = true) {
     const client = new MangoClient(TEST_PROVIDER.connection, MANGO_PROG_ID);
     const mangoAccount = await client.getMangoAccount(
         mangoAccountAddress,
         SERUM_PROG_ID
       );
-      assert.ok(mangoAccount.deposits[tokenIndex].toNumber() === expectedUiAmount);
+    //   console.log(mangoAccount.deposits[tokenIndex].toNumber(), expectedUiAmount);
+      if (exact) {
+        assert.ok(mangoAccount.deposits[tokenIndex].toNumber() === expectedUiAmount);
+      } else {
+        const difference = Math.abs(mangoAccount.deposits[tokenIndex].toNumber() - expectedUiAmount);
+        assert.ok(difference < 0.0001);
+      }
 }

@@ -380,79 +380,127 @@ describe("mango-blender", () => {
       await client.settleFunds(group, mangoAccount, owner, market);
 
       // check mangoAccount QUOTE amount
-      await checkMangoAccountTokenAmount(mangoAccountAddress, QUOTE_INDEX, 0.4996799999999979); // Serum fees
+      await checkMangoAccountTokenAmount(mangoAccountAddress, QUOTE_INDEX, 0.4996799999999979, false); // Serum fees
       // check mangoAccount AAAA amount
       await checkMangoAccountTokenAmount(mangoAccountAddress, tokenIndex, 1);
         
   });
 
-    // // TODO: move this test to the end so that there are other tokens in MangoAccount (fails bc nodebank only has quote rn)
-  // it("will fail if a user tries to buy into the pool using a non-quote token", async () => {
-  //   const depositAQuantity = new anchor.BN(1000000);
+  it("will fail if a user tries to buy into the pool using a non-quote token", async () => {
+    const depositAQuantity = new anchor.BN(1000000);
+    //check provider IOU amount
+    await checkProviderTokenAmount(providerIouATA, new anchor.BN(1500000));
 
-  //   const providerIouBefore = await getTokenAccount(
-  //     TEST_PROVIDER,
-  //     providerIouATA
-  //   );
-  //   assert.ok(providerIouBefore.amount.eq(new anchor.BN(1000000)));
+    const group = await client.getMangoGroup(mangoGroupPubkey);
+    const rootBanks = await group.loadRootBanks(TEST_PROVIDER.connection);
+    const tokenIndex = group.getTokenIndex(tokenA.publicKey);
+    const nodeBanks = await rootBanks[tokenIndex]?.loadNodeBanks(
+      TEST_PROVIDER.connection
+    );
+    const mangoCache = await group.loadCache(TEST_PROVIDER.connection);
+    if (!nodeBanks) {
+      throw Error;
+    }
 
-  //   const group = await client.getMangoGroup(mangoGroupPubkey);
-  //   const rootBanks = await group.loadRootBanks(TEST_PROVIDER.connection);
-  //   const tokenIndex = group.getTokenIndex(tokenA.publicKey);
-  //   const nodeBanks = await rootBanks[QUOTE_INDEX]?.loadNodeBanks(
-  //     TEST_PROVIDER.connection
-  //   );
-  //   const mangoCache = await group.loadCache(TEST_PROVIDER.connection);
-  //   if (!nodeBanks) {
-  //     throw Error;
-  //   }
+    await keeperRefresh(client, group, mangoCache, rootBanks);
 
-  //   await keeperRefresh(client, group, mangoCache, rootBanks);
+    const mangoAccount = await client.getMangoAccount(
+      mangoAccountAddress,
+      SERUM_PROG_ID
+    );
+    const openOrdersKeys = mangoAccount.getOpenOrdersKeysInBasket();
+    const remainingAccounts = openOrdersKeys.map((key) => {
+      return { pubkey: key, isWritable: false, isSigner: false };
+    });
 
-  //   const mangoAccount = await client.getMangoAccount(
-  //     mangoAccountAddress,
-  //     SERUM_PROG_ID
-  //   );
-  //   const openOrdersKeys = mangoAccount.getOpenOrdersKeysInBasket();
-  //   const remainingAccounts = openOrdersKeys.map((key) => {
-  //     return { pubkey: key, isWritable: false, isSigner: false };
-  //   });
+    await assert.rejects(
+      async () => {
+        const txn = await program.rpc.buyIntoPool(
+          depositAQuantity,
+          {
+            accounts: {
+              mangoProgram: MANGO_PROG_ID,
+              pool: poolAddress,
+              mangoGroup: mangoGroupPubkey,
+              mangoAccount: mangoAccountAddress,
+              depositor: TEST_PROVIDER.wallet.publicKey,
+              depositorQuoteTokenAccount: providerAATA,
+              mangoCache: mangoCache.publicKey,
+              rootBank: rootBanks[tokenIndex]?.publicKey,
+              nodeBank: nodeBanks[0].publicKey,
+              vault: nodeBanks[0].vault,
+              poolIouMint: poolIouAddress,
+              depositorIouTokenAccount: providerIouATA,
+              tokenProgram: TOKEN_PROGRAM_ID,
+            },
+            remainingAccounts,
+            signers: [TEST_PAYER],
+          }
+        );
+      },
+      (err) => {
+        console.log(err.logs);
+        assert.ok(err.logs.includes("Program log: Custom program error: 0x8")); // Mango Invalid Token error
+        return true;
+      }
+    );
+  });
 
-  //   await assert.rejects(
-  //     async () => {
-  //       const txn = await program.rpc.buyIntoPool(
-  //         depositAQuantity,
-  //         {
-  //           accounts: {
-  //             mangoProgram: MANGO_PROG_ID,
-  //             pool: poolAddress,
-  //             mangoGroup: mangoGroupPubkey,
-  //             mangoAccount: mangoAccountAddress,
-  //             depositor: TEST_PROVIDER.wallet.publicKey,
-  //             depositorQuoteTokenAccount: providerAATA,
-  //             mangoCache: mangoCache.publicKey,
-  //             rootBank: rootBanks[tokenIndex]?.publicKey,
-  //             nodeBank: nodeBanks[0].publicKey,
-  //             vault: nodeBanks[0].vault,
-  //             poolIouMint: poolIouAddress,
-  //             depositorIouTokenAccount: providerIouATA,
-  //             tokenProgram: TOKEN_PROGRAM_ID,
-  //           },
-  //           remainingAccounts,
-  //           signers: [TEST_PAYER],
-  //         }
-  //       );
-  //     },
-  //     (err) => {
-  //       console.log(err.logs);
-  //       assert.ok(err.logs.includes("Program log: Custom program error: 0x8")); // Mango Invalid Token error
-  //       return true;
-  //     }
-  //   );
-  // });
+  it("will fail if user tries to withdraw a non-QUOTE token", async () => {
+    const withdrawQuoteQuantity = new anchor.BN(500000);
 
-  // it("will fail if user tries to withdraw a non-QUOTE token", async () => {
-  // });
+    const group = await client.getMangoGroup(mangoGroupPubkey);
+    const rootBanks = await group.loadRootBanks(TEST_PROVIDER.connection);
+    const tokenIndex = group.getTokenIndex(tokenA.publicKey);
+    const nodeBanks = await rootBanks[tokenIndex]?.loadNodeBanks(
+      TEST_PROVIDER.connection
+    );
+    const mangoCache = await group.loadCache(TEST_PROVIDER.connection);
+    if (!nodeBanks) {
+      throw Error;
+    }
+
+    await keeperRefresh(client, group, mangoCache, rootBanks);
+
+    const mangoAccount = await client.getMangoAccount(
+      mangoAccountAddress,
+      SERUM_PROG_ID
+    );
+    const openOrdersKeys = mangoAccount.getOpenOrdersKeysInBasket();
+    const remainingAccounts = openOrdersKeys.map((key) => {
+      return { pubkey: key, isWritable: false, isSigner: false };
+    });
+
+    await assert.rejects(
+      async () => {
+        const txn = await program.rpc.withdrawFromPool(withdrawQuoteQuantity, {
+          accounts: {
+            mangoProgram: MANGO_PROG_ID,
+            pool: poolAddress,
+            mangoGroup: mangoGroupPubkey,
+            mangoGroupSigner: group.signerKey,
+            mangoAccount: mangoAccountAddress,
+            withdrawer: TEST_PROVIDER.wallet.publicKey,
+            withdrawerTokenAccount: providerAATA,
+            mangoCache: mangoCache.publicKey,
+            rootBank: rootBanks[tokenIndex]?.publicKey,
+            nodeBank: nodeBanks[0].publicKey,
+            vault: nodeBanks[0].vault,
+            poolIouMint: poolIouAddress,
+            withdrawerIouTokenAccount: providerIouATA,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          },
+          remainingAccounts,
+          signers: [TEST_PAYER],
+        });
+      },
+      (err) => {
+        console.log(err.logs);
+        assert.ok(err.logs.includes("Program log: Custom program error: 0x8")); // Mango Invalid Token error
+        return true;
+      }
+    );
+  });
 
   // it("will prevent withdraw if too leveraged (perp order)", async () => {
   // });
