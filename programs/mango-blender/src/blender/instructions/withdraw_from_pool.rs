@@ -93,10 +93,7 @@ pub fn handler(ctx: Context<WithdrawFromPool>, quantity: u64) -> ProgramResult {
     let open_orders_ais =
         mango_account.checked_unpack_open_orders(&mango_group, &ctx.remaining_accounts)?;
 
-    // get pool + withdraw value
-    let pool_value_quote = calculate_pool_value(&mango_account, &mango_cache, &mango_group, open_orders_ais, &active_assets);
-    let withdraw_value_quote = I80F48::from_num(quantity);
-
+    // prepare iou burn
     let seeds = &[
         &ctx.accounts.pool.pool_name.as_ref(),
         ctx.accounts.pool.admin.as_ref(),
@@ -104,35 +101,28 @@ pub fn handler(ctx: Context<WithdrawFromPool>, quantity: u64) -> ProgramResult {
     ];
     let cpi_seed = &[&seeds[..]];
 
-    // burn tokens s.t. withdraw value / pool value (before withdraw) = burn tokens / total iou tokens (before burn)
-    {
-        let burn_accounts = Burn {
-            to: ctx.accounts.withdrawer_iou_token_account.to_account_info(),
-            mint: ctx.accounts.pool_iou_mint.to_account_info(),
-            authority: ctx.accounts.withdrawer.to_account_info(),
-        };
-        let token_program_ai = ctx.accounts.token_program.to_account_info();
-        let iou_burn_ctx = CpiContext::new_with_signer(token_program_ai, burn_accounts, cpi_seed);
+    let burn_accounts = Burn {
+        to: ctx.accounts.withdrawer_iou_token_account.to_account_info(),
+        mint: ctx.accounts.pool_iou_mint.to_account_info(),
+        authority: ctx.accounts.withdrawer.to_account_info(),
+    };
+    let token_program_ai = ctx.accounts.token_program.to_account_info();
+    let iou_burn_ctx = CpiContext::new_with_signer(token_program_ai, burn_accounts, cpi_seed);
+    
+    // get values and burn amount
+    let outstanding_iou_tokens = I80F48::from_num(ctx.accounts.pool_iou_mint.supply);
+    let withdraw_value_quote = I80F48::from_num(quantity);
+    let pool_value_quote = calculate_pool_value(&mango_account, &mango_cache, &mango_group, open_orders_ais, &active_assets);
+    let burn_amount = calculate_iou_burn_amount(withdraw_value_quote, pool_value_quote, outstanding_iou_tokens);
 
-        let outstanding_iou_tokens = I80F48::from_num(ctx.accounts.pool_iou_mint.supply);
-        // msg!("outstanding_iou_tokens: {:?}", outstanding_iou_tokens);
+    // make sure user has enough iou tokens to burn
+    check!(burn_amount > 0, MangoErrorCode::Default)?;
+    check!(
+        burn_amount <= ctx.accounts.withdrawer_iou_token_account.amount,
+        MangoErrorCode::InsufficientFunds
+    )?;
 
-        let burn_amount: u64 = ((withdraw_value_quote / pool_value_quote) * outstanding_iou_tokens)
-            .checked_ceil()
-            .unwrap()
-            .checked_to_num()
-            .unwrap();
-        //     msg!("burn_amount: {:?}", burn_amount);
-
-        // make sure user has enough iou tokens to burn
-        check!(burn_amount > 0, MangoErrorCode::Default)?;
-        check!(
-            burn_amount <= ctx.accounts.withdrawer_iou_token_account.amount,
-            MangoErrorCode::Default
-        )?;
-
-        token::burn(iou_burn_ctx, burn_amount)?;
-    }
+    token::burn(iou_burn_ctx, burn_amount)?;
 
     // handle withdraw (Mango will prevent if the account is too leveraged -- no borrows allowed)
     let withdraw_instruction = MangoInstructions::withdraw(
@@ -176,4 +166,19 @@ pub fn handler(ctx: Context<WithdrawFromPool>, quantity: u64) -> ProgramResult {
     )?;
 
     Ok(())
+}
+
+
+/// Calculate how many iou tokens should be burned for a withdrawak
+/// We want to ensure that a withdrawer can only withdraw what they are entitled to and that they burn the correct amount of iou tokens
+/// e.g. If the pool is worth $100 and I own 10% of all minted iou tokens, I should be entitled to withdraw $10 worth of quote (aka 10% of the pool)
+/// 
+/// To achieve this: (withdraw value / starting pool value) = (my burnable iou tokens / outstanding iou tokens)
+fn calculate_iou_burn_amount(withdraw_value_quote: I80F48, pool_value_quote: I80F48, outstanding_iou_tokens: I80F48) -> u64 {
+    let burn_amount: u64 = ((withdraw_value_quote / pool_value_quote) * outstanding_iou_tokens)
+        .checked_ceil()
+        .unwrap()
+        .checked_to_num()
+        .unwrap();
+        burn_amount
 }
