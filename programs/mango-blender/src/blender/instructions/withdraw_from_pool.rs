@@ -1,3 +1,4 @@
+use mango::state::QUOTE_INDEX;
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Burn, Mint, Token, TokenAccount};
 use fixed::types::I80F48;
@@ -51,9 +52,9 @@ pub struct WithdrawFromPool<'info> {
 }
 
 /// A user can withdraw whatever token that they want from the pool, up to whatever % of the pool they own (as dictated by their iou tokens)
-pub fn handler(ctx: Context<WithdrawFromPool>, quantity: u64, asset_index: u32) -> ProgramResult {
+pub fn handler(ctx: Context<WithdrawFromPool>, quantity: u64) -> ProgramResult {
+    
     // load mango account, group, cache
-    let token_index = usize::try_from(asset_index).unwrap();
     let mango_account_ai = ctx.accounts.mango_account.to_account_info();
     let mango_group_ai = ctx.accounts.mango_group.to_account_info();
     let mango_cache_ai = ctx.accounts.mango_cache.to_account_info();
@@ -71,29 +72,30 @@ pub fn handler(ctx: Context<WithdrawFromPool>, quantity: u64, asset_index: u32) 
         &mango_group,
     )?;
 
+    //check that user is withdrawing QUOTE from pool
+    check!(
+        mango_group.tokens[QUOTE_INDEX].mint == ctx.accounts.withdrawer_token_account.mint,
+        MangoErrorCode::InvalidToken
+    )?;
+
     // check that cache is valid
     let active_assets = UserActiveAssets::new(
         &mango_group,
         &mango_account,
-        vec![(AssetType::Token, token_index)],
+        vec![(AssetType::Token, QUOTE_INDEX)],
     );
     let clock = Clock::get()?;
     let now_ts = clock.unix_timestamp as u64;
     mango_cache.check_valid(&mango_group, &active_assets, now_ts)?;
 
+    //load open orders
     let open_orders_keys = convert_remaining_accounts_to_open_orders_keys(&ctx.remaining_accounts);
     let open_orders_ais =
         mango_account.checked_unpack_open_orders(&mango_group, &ctx.remaining_accounts)?;
 
-    // get pool value
+    // get pool + withdraw value
     let pool_value_quote = calculate_pool_value(&mango_account, &mango_cache, &mango_group, open_orders_ais, &active_assets);
-
-    // Get value of withdraw in quote native tokens
-    let asset_price = mango_cache.get_price(token_index); // mango_cache price is interpreted as how many quote native tokens for 1 base native token
-    let withdraw_quantity = I80F48::from_num(quantity);
-    check!(withdraw_quantity > 0, MangoErrorCode::Default)?;
-    let withdraw_value_quote = asset_price.checked_mul(withdraw_quantity).unwrap();
-    // msg!("withdraw val: {:?}", withdraw_value_quote);
+    let withdraw_value_quote = I80F48::from_num(quantity);
 
     let seeds = &[
         &ctx.accounts.pool.pool_name.as_ref(),

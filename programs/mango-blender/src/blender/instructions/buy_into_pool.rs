@@ -49,8 +49,7 @@ pub struct BuyIntoPool<'info> {
 }
 
 /// A user "buys a percentage" of the mango pool by depositing quote token into the mango pool
-pub fn handler(ctx: Context<BuyIntoPool>, quantity: u64, asset_index: u32) -> ProgramResult {
-    // TODO: asset and token_index can be removed if only quote deposits
+pub fn handler(ctx: Context<BuyIntoPool>, quantity: u64) -> ProgramResult {
     // handle deposit
     let deposit_instruction = MangoInstructions::deposit(
         ctx.accounts.mango_program.key,
@@ -96,7 +95,6 @@ pub fn handler(ctx: Context<BuyIntoPool>, quantity: u64, asset_index: u32) -> Pr
     )?;
 
     // load mango account, group, cache
-    let token_index = usize::try_from(asset_index).unwrap();
     let mango_account_ai = ctx.accounts.mango_account.to_account_info();
     let mango_group_ai = ctx.accounts.mango_group.to_account_info();
     let mango_cache_ai = ctx.accounts.mango_cache.to_account_info();
@@ -118,29 +116,27 @@ pub fn handler(ctx: Context<BuyIntoPool>, quantity: u64, asset_index: u32) -> Pr
     let active_assets = UserActiveAssets::new(
         &mango_group,
         &mango_account,
-        vec![(AssetType::Token, token_index)],
+        vec![(AssetType::Token, QUOTE_INDEX)],
     );
     let clock = Clock::get()?;
     let now_ts = clock.unix_timestamp as u64;
     mango_cache.check_valid(&mango_group, &active_assets, now_ts)?;
 
-    //check that user is buying into pool with Quote token only
+    //check that user is buying into pool with QUOTE
     check!(
         mango_group.tokens[QUOTE_INDEX].mint == ctx.accounts.depositor_quote_token_account.mint,
         MangoErrorCode::InvalidToken
     )?;
+    let deposit_value_quote = I80F48::from_num(quantity);
 
-    // Get value of deposit in quote native tokens
-    let asset_price = mango_cache.get_price(token_index); // mango_cache price is interpreted as how many quote native tokens for 1 base native token
-    let deposit_quantity = I80F48::from_num(quantity);
-    check!(deposit_quantity > 0, MangoErrorCode::Default)?;
-    let deposit_value_quote = asset_price.checked_mul(deposit_quantity).unwrap();
-
-    // calculate total value of pool at current price (including open orders)
+    //load open orders
     let open_orders_ais =
         mango_account.checked_unpack_open_orders(&mango_group, &ctx.remaining_accounts)?;
+
+    // calculate total value of pool at current price (including open orders)
     let pool_value_quote = calculate_pool_value(&mango_account, &mango_cache, &mango_group, open_orders_ais, &active_assets);
 
+    // prepare iou mint 
     let mint_accounts = MintTo {
         to: ctx.accounts.depositor_iou_token_account.to_account_info(),
         mint: ctx.accounts.pool_iou_mint.to_account_info(),
