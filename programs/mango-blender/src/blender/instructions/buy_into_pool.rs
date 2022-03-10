@@ -5,7 +5,7 @@ use mango::declare_check_assert_macros;
 use mango::error::{check_assert, MangoErrorCode, SourceFileId};
 use mango::instruction as MangoInstructions;
 use mango::state::{
-    AssetType, MangoAccount, MangoCache, MangoGroup, UserActiveAssets, QUOTE_INDEX, ZERO_I80F48,
+    AssetType, MangoAccount, MangoCache, MangoGroup, UserActiveAssets, QUOTE_INDEX,
 };
 use solana_program::program::invoke_signed;
 use std::convert::TryFrom;
@@ -136,64 +136,10 @@ pub fn handler(ctx: Context<BuyIntoPool>, quantity: u64, asset_index: u32) -> Pr
     check!(deposit_quantity > 0, MangoErrorCode::Default)?;
     let deposit_value_quote = asset_price.checked_mul(deposit_quantity).unwrap();
 
-    // TODO: refactor into separate function? Is this possible with the stack size limit? probably but idk how
     // calculate total value of pool at current price (including open orders)
     let open_orders_ais =
         mango_account.checked_unpack_open_orders(&mango_group, &ctx.remaining_accounts)?;
-    let mango_deposits = mango_account.deposits;
-    let mango_borrows = mango_account.borrows;
-    let mango_in_margin_basket = mango_account.in_margin_basket;
-
-    let mut pool_value_quote = ZERO_I80F48;
-
-    for i in 0..mango_group.num_oracles {
-        //spot
-        if active_assets.spot[i] {
-            let base_net = get_mango_account_base_net(
-                mango_deposits,
-                mango_borrows,
-                mango_cache.root_bank_cache[i],
-                i,
-            );
-            // msg!("i: {:?}", i);
-            // msg!("base_net: {:?}", base_net);
-
-            let price = mango_cache.get_price(i);
-            // msg!("price: {:?}", price);
-            let market_value_quote = get_spot_val_in_quote(
-                base_net,
-                price,
-                open_orders_ais[i],
-                mango_in_margin_basket[i],
-            )
-            .unwrap();
-            // msg!("quote val: {:?}", market_value_quote);
-            pool_value_quote += market_value_quote;
-        }
-
-        //perp
-        if active_assets.perps[i] {
-            let (perp_base, perp_quote) = mango_account.perp_accounts[i].get_val(
-                &mango_group.perp_markets[i],
-                &mango_cache.perp_market_cache[i],
-                mango_cache.price_cache[i].price,
-            )?;
-            pool_value_quote += perp_base + perp_quote;
-        }
-    }
-
-    //quote
-    let quote_value = get_mango_account_base_net(
-        mango_deposits,
-        mango_borrows,
-        mango_cache.root_bank_cache[QUOTE_INDEX],
-        QUOTE_INDEX,
-    );
-    pool_value_quote += quote_value;
-    // msg!("naked quote_value: {:?}", quote_value);
-
-    msg!("deposit_value_quote: {:?}", deposit_value_quote);
-    msg!("pool_value_quote: {:?}", pool_value_quote);
+    let pool_value_quote = calculate_pool_value(&mango_account, &mango_cache, &mango_group, open_orders_ais, &active_assets);
 
     let mint_accounts = MintTo {
         to: ctx.accounts.depositor_iou_token_account.to_account_info(),

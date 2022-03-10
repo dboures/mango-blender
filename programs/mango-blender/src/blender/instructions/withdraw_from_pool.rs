@@ -4,11 +4,9 @@ use fixed::types::I80F48;
 use mango::declare_check_assert_macros;
 use mango::error::{check_assert, MangoErrorCode, SourceFileId};
 use mango::instruction as MangoInstructions;
-use mango::state::ZERO_I80F48;
 use mango::state::{
-    AssetType, MangoAccount, MangoCache, MangoGroup, UserActiveAssets, MAX_PAIRS, QUOTE_INDEX,
+    AssetType, MangoAccount, MangoCache, MangoGroup, UserActiveAssets,
 };
-use solana_program::program::invoke_signed;
 use solana_program::program::invoke_signed_unchecked;
 use std::convert::TryFrom;
 
@@ -87,61 +85,15 @@ pub fn handler(ctx: Context<WithdrawFromPool>, quantity: u64, asset_index: u32) 
     let open_orders_ais =
         mango_account.checked_unpack_open_orders(&mango_group, &ctx.remaining_accounts)?;
 
+    // get pool value
+    let pool_value_quote = calculate_pool_value(&mango_account, &mango_cache, &mango_group, open_orders_ais, &active_assets);
+
     // Get value of withdraw in quote native tokens
     let asset_price = mango_cache.get_price(token_index); // mango_cache price is interpreted as how many quote native tokens for 1 base native token
     let withdraw_quantity = I80F48::from_num(quantity);
     check!(withdraw_quantity > 0, MangoErrorCode::Default)?;
     let withdraw_value_quote = asset_price.checked_mul(withdraw_quantity).unwrap();
     // msg!("withdraw val: {:?}", withdraw_value_quote);
-
-    // get pool value
-    let mango_deposits = mango_account.deposits;
-    let mango_borrows = mango_account.borrows;
-    let mango_in_margin_basket = mango_account.in_margin_basket;
-
-    let mut pool_value_quote = ZERO_I80F48;
-
-    for i in 0..mango_group.num_oracles {
-        //spot
-        if active_assets.spot[i] {
-            let base_net = get_mango_account_base_net(
-                mango_deposits,
-                mango_borrows,
-                mango_cache.root_bank_cache[i],
-                i,
-            );
-            let price = mango_cache.get_price(i);
-            let market_value_quote = get_spot_val_in_quote(
-                base_net,
-                price,
-                open_orders_ais[i],
-                mango_in_margin_basket[i],
-            )
-            .unwrap();
-            pool_value_quote += market_value_quote;
-        }
-        //perp
-        if active_assets.perps[i] {
-            let (perp_base, perp_quote) = mango_account.perp_accounts[i].get_val(
-                &mango_group.perp_markets[i],
-                &mango_cache.perp_market_cache[i],
-                mango_cache.price_cache[i].price,
-            )?;
-            pool_value_quote += perp_base + perp_quote;
-        }
-    }
-
-    //quote
-    let quote_value = get_mango_account_base_net(
-        mango_deposits,
-        mango_borrows,
-        mango_cache.root_bank_cache[QUOTE_INDEX],
-        QUOTE_INDEX,
-    );
-    pool_value_quote += quote_value;
-
-    // msg!("withdraw_value_quote: {:?}", withdraw_value_quote);
-    // msg!("pool_value_quote: {:?}", pool_value_quote);
 
     let seeds = &[
         &ctx.accounts.pool.pool_name.as_ref(),
@@ -198,6 +150,8 @@ pub fn handler(ctx: Context<WithdrawFromPool>, quantity: u64, asset_index: u32) 
     )
     .unwrap();
 
+    // https://github.com/solana-labs/solana/issues/20311
+    // https://github.com/solana-labs/solana/blob/master/sdk/program/src/program.rs
     invoke_signed_unchecked(
         &withdraw_instruction,
         &[
@@ -218,9 +172,6 @@ pub fn handler(ctx: Context<WithdrawFromPool>, quantity: u64, asset_index: u32) 
         ],
         cpi_seed,
     )?;
-
-    // iou token burn
-    // burn_ious(ctx, withdraw_value_quote, pool_value_quote)?;
 
     Ok(())
 }

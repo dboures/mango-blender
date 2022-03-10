@@ -1,25 +1,73 @@
-// Code from Mango V3 that I wish was public
-// Really just a hacky implementation of MangoAccount.get_spot_val
 use anchor_lang::prelude::*;
 use fixed::types::I80F48;
 use mango::error::MangoResult;
 use mango::state::{
-    load_open_orders, RootBankCache, MAX_PAIRS, MAX_TOKENS, QUOTE_INDEX, ZERO_I80F48,
+    load_open_orders, MangoAccount, MangoCache, MangoGroup,
+    RootBankCache, UserActiveAssets, MAX_PAIRS, QUOTE_INDEX, ZERO_I80F48,
 };
 use mango::utils::split_open_orders;
 
+/// Calculates the total value of the pooled MangoAccount in QUOTE (includes open orders)
+pub fn calculate_pool_value(
+    mango_account: &MangoAccount,
+    mango_cache: &MangoCache,
+    mango_group: &MangoGroup,
+    open_orders_ais: Vec<Option<&AccountInfo>>,
+    active_assets: &UserActiveAssets,
+) -> I80F48 {
+    let mut pool_value_quote = ZERO_I80F48;
+
+    for i in 0..MAX_PAIRS {
+        //spot
+        if active_assets.spot[i] {
+            let base_net = get_mango_account_base_net(
+                mango_account,
+                &mango_cache.root_bank_cache[i],
+                i,
+            );
+            let price = mango_cache.get_price(i);
+            let market_value_quote = get_spot_val_in_quote(
+                base_net,
+                price,
+                open_orders_ais[i],
+                mango_account.in_margin_basket[i],
+            )
+            .unwrap();
+            pool_value_quote += market_value_quote;
+        }
+        //perp
+        if active_assets.perps[i] {
+            let (perp_base, perp_quote) = mango_account.perp_accounts[i].get_val(
+                &mango_group.perp_markets[i],
+                &mango_cache.perp_market_cache[i],
+                mango_cache.price_cache[i].price,
+            ).unwrap();
+            pool_value_quote += perp_base + perp_quote;
+        }
+    }
+
+    //quote
+    let quote_value = get_mango_account_base_net(
+        mango_account,
+        &mango_cache.root_bank_cache[QUOTE_INDEX],
+        QUOTE_INDEX,
+    );
+    pool_value_quote += quote_value;
+    pool_value_quote
+}
+
+/// Copypasta of private fn get_net in mango-v3
 pub fn get_mango_account_base_net(
-    mango_deposits: [I80F48; MAX_TOKENS],
-    mango_borrows: [I80F48; MAX_TOKENS],
-    bank_cache: RootBankCache,
+    mango_account: &MangoAccount,
+    bank_cache: &RootBankCache,
     token_index: usize,
 ) -> I80F48 {
-    if mango_deposits[token_index].is_positive() {
-        mango_deposits[token_index]
+    if mango_account.deposits[token_index].is_positive() {
+        mango_account.deposits[token_index]
             .checked_mul(bank_cache.deposit_index)
             .unwrap()
-    } else if mango_borrows[token_index].is_positive() {
-        -mango_borrows[token_index]
+    } else if mango_account.borrows[token_index].is_positive() {
+        -mango_account.borrows[token_index]
             .checked_mul(bank_cache.borrow_index)
             .unwrap()
     } else {
@@ -27,6 +75,7 @@ pub fn get_mango_account_base_net(
     }
 }
 
+/// Copypasta of private fn get_spot_val in mango-v3
 /// Return the value (in quote tokens) for this market taking into account open orders
 /// but not doing asset weighting
 pub fn get_spot_val_in_quote(
@@ -76,58 +125,6 @@ pub fn get_spot_val_in_quote(
         }
     }
 }
-
-// // Too fat for the stack
-// pub fn calculate_pool_value (mango_account: MangoAccount, mango_group: MangoGroup, mango_cache: MangoCache, open_orders_ais: Vec<Option<&AccountInfo>>, active_assets: UserActiveAssets) -> I80F48 {
-//     let mut pool_value_quote = ZERO_I80F48;
-
-//     for i in 0..mango_group.num_oracles {
-//         //spot
-//         if active_assets.spot[i] {
-//             let base_net = get_mango_account_base_net(
-//                 mango_account.deposits,
-//                 mango_account.borrows,
-//                 mango_cache.root_bank_cache[i],
-//                 i,
-//             );
-//             // msg!("i: {:?}", i);
-//             // msg!("base_net: {:?}", base_net);
-
-//             let price = mango_cache.get_price(i);
-//             // msg!("price: {:?}", price);
-//             let market_value_quote = get_spot_val_in_quote(
-//                 base_net,
-//                 price,
-//                 open_orders_ais[i],
-//                 mango_account.in_margin_basket[i],
-//             )
-//             .unwrap();
-//             // msg!("quote val: {:?}", market_value_quote);
-//             pool_value_quote += market_value_quote;
-//         }
-
-//         //perp
-//         if active_assets.perps[i] {
-//             let (perp_base, perp_quote) = mango_account.perp_accounts[i].get_val(
-//                 &mango_group.perp_markets[i],
-//                 &mango_cache.perp_market_cache[i],
-//                 mango_cache.price_cache[i].price,
-//             ).unwrap();
-//             pool_value_quote += perp_base + perp_quote;
-//         }
-
-//     }
-
-//     //quote
-//     let quote_value = get_mango_account_base_net(
-//         mango_account.deposits,
-//         mango_account.borrows,
-//         mango_cache.root_bank_cache[QUOTE_INDEX],
-//         QUOTE_INDEX,
-//     );
-//     pool_value_quote += quote_value;
-//     pool_value_quote
-// }
 
 pub fn convert_remaining_accounts_to_open_orders_keys(
     remaining_accounts: &[AccountInfo],
