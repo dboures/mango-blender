@@ -133,13 +133,6 @@ pub fn handler<'a, 'b, 'c, 'info>(ctx: Context<'a, 'b, 'c, 'info, WithdrawFromPo
 /// 
 /// To achieve this: (withdraw value / starting pool value) = (my burnable iou tokens / outstanding iou tokens)
 fn calculate_iou_burn_amount(withdraw_value_quote: I80F48, pool_value_quote: I80F48, outstanding_iou_tokens: I80F48) -> u64 {
-    msg!{"withdraw_value_quote: {:?}", withdraw_value_quote};
-    msg!{"pool_value_quote: {:?}", pool_value_quote};
-    msg!{"outstanding_iou_tokens: {:?}", outstanding_iou_tokens};
-    if withdraw_value_quote > 500000 {
-        // panic!("gah");
-    }
-
     let burn_amount: u64 = ((withdraw_value_quote / pool_value_quote) * outstanding_iou_tokens)
         .checked_ceil()
         .unwrap()

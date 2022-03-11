@@ -479,6 +479,62 @@ describe("mango-blender", () => {
     );
   });
 
+  it("will fail if user tries to withdraw too much", async () => {
+    const withdrawQuoteQuantity = new anchor.BN(1500001);
+    await checkProviderTokenAmount(providerIouATA, withdrawQuoteQuantity.sub(new anchor.BN(1)));
+
+    const group = await client.getMangoGroup(mangoGroupPubkey);
+    const rootBanks = await group.loadRootBanks(TEST_PROVIDER.connection);
+    const nodeBanks = await rootBanks[QUOTE_INDEX]?.loadNodeBanks(
+      TEST_PROVIDER.connection
+    );
+    const mangoCache = await group.loadCache(TEST_PROVIDER.connection);
+    if (!nodeBanks) {
+      throw Error;
+    }
+
+    await keeperRefresh(client, group, mangoCache, rootBanks);
+
+    const mangoAccount = await client.getMangoAccount(
+      mangoAccountAddress,
+      SERUM_PROG_ID
+    );
+    const openOrdersKeys = mangoAccount.getOpenOrdersKeysInBasket();
+    const remainingAccounts = openOrdersKeys.map((key) => {
+      return { pubkey: key, isWritable: false, isSigner: false };
+    });
+
+    await assert.rejects(
+      async () => {
+        const txn = await program.rpc.withdrawFromPool(withdrawQuoteQuantity, {
+          accounts: {
+            mangoProgram: MANGO_PROG_ID,
+            pool: poolAddress,
+            mangoGroup: mangoGroupPubkey,
+            mangoGroupSigner: group.signerKey,
+            mangoAccount: mangoAccountAddress,
+            withdrawer: TEST_PROVIDER.wallet.publicKey,
+            withdrawerTokenAccount: providerQuoteATA,
+            mangoCache: mangoCache.publicKey,
+            rootBank: rootBanks[QUOTE_INDEX]?.publicKey,
+            nodeBank: nodeBanks[0].publicKey,
+            vault: nodeBanks[0].vault,
+            poolIouMint: poolIouAddress,
+            withdrawerIouTokenAccount: providerIouATA,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          },
+          remainingAccounts,
+          signers: [TEST_PAYER],
+        });
+      },
+      (err) => {
+        console.log(err.logs);
+        assert.ok(err.logs.includes("Program log: Custom program error: 0x7")); // Mango Insufficient Funds error
+        return true;
+      }
+    );
+  });
+
   it("allows delegate to trade on serum normally", async () => {
     const market = await Market.load(TEST_PROVIDER.connection, marketA.market, {}, SERUM_PROG_ID);
     const owner = new Account(TEST_PAYER.secretKey)
