@@ -33,8 +33,8 @@ pub mod mango_blender {
         blender::instructions::buy_into_pool::handler(ctx, quantity)
     }
 
-    pub fn withdraw_from_pool(
-        ctx: Context<WithdrawFromPool>,
+    pub fn withdraw_from_pool<'a, 'b, 'c, 'info>(
+        ctx: Context<'a, 'b, 'c, 'info, WithdrawFromPool<'info>>,
         quantity: u64,
     ) -> ProgramResult {
         blender::instructions::withdraw_from_pool::handler(ctx, quantity)

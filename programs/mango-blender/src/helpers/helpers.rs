@@ -8,6 +8,7 @@ use mango::state::{
 use mango::utils::split_open_orders;
 
 /// Calculates the total value of the pooled MangoAccount in QUOTE (includes open orders)
+#[inline(never)]
 pub fn calculate_pool_value(
     mango_account: &MangoAccount,
     mango_cache: &MangoCache,
@@ -126,12 +127,3 @@ pub fn get_spot_val_in_quote(
     }
 }
 
-pub fn convert_remaining_accounts_to_open_orders_keys(
-    remaining_accounts: &[AccountInfo],
-) -> [Pubkey; MAX_PAIRS] {
-    let mut result = [Pubkey::default(); MAX_PAIRS];
-    for (pos, account) in remaining_accounts.iter().enumerate() {
-        result[pos] = *account.key;
-    }
-    result
-}
