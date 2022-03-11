@@ -126,6 +126,7 @@ export async function createToken(
 }
 
 export async function initializeProviderATA(
+  provider: SolanaProvider,
   tokenPubkey: PublicKey,
   lots: number,
   mintTokens = true
@@ -133,7 +134,7 @@ export async function initializeProviderATA(
   const transaction = new Transaction();
   // Create associated token accounts
   const createATAResult = await getOrCreateATA({
-    provider: TEST_PROVIDER,
+    provider: provider,
     mint: tokenPubkey,
   });
   if (createATAResult.instruction) {
@@ -142,16 +143,17 @@ export async function initializeProviderATA(
 
   if (mintTokens) {
     const mintInstruction = createMintToInstruction({
-      provider: TEST_PROVIDER,
+      provider: provider,
       mint: tokenPubkey,
       mintAuthorityKP: TEST_PAYER,
       to: createATAResult.address,
       amount: new u64(lots),
     });
     transaction.add(...mintInstruction.instructions);
+    await provider.send(transaction, [TEST_PAYER]);
+  } else {
+    await provider.send(transaction);
   }
-
-  await TEST_PROVIDER.send(transaction);
   return createATAResult.address;
 }
 
@@ -192,7 +194,7 @@ async function initializeFeeVault(
   return feeVaultKeypair.publicKey;
 }
 
-function readConfig(): Config {
+export function readConfig(): Config {
   return new Config(JSON.parse(fs.readFileSync(MANGO_CONFIG_PATH, "utf-8")));
 }
 
