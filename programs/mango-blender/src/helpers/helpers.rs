@@ -2,8 +2,8 @@ use anchor_lang::prelude::*;
 use fixed::types::I80F48;
 use mango::error::MangoResult;
 use mango::state::{
-    load_open_orders, MangoAccount, MangoCache, MangoGroup,
-    RootBankCache, UserActiveAssets, MAX_PAIRS, QUOTE_INDEX, ZERO_I80F48,
+    load_open_orders, MangoAccount, MangoCache, MangoGroup, RootBankCache, UserActiveAssets,
+    MAX_PAIRS, QUOTE_INDEX, ZERO_I80F48,
 };
 use mango::utils::split_open_orders;
 
@@ -21,11 +21,8 @@ pub fn calculate_pool_value(
     for i in 0..MAX_PAIRS {
         //spot
         if active_assets.spot[i] {
-            let base_net = get_mango_account_base_net(
-                mango_account,
-                &mango_cache.root_bank_cache[i],
-                i,
-            );
+            let base_net =
+                get_mango_account_base_net(mango_account, &mango_cache.root_bank_cache[i], i);
             let price = mango_cache.get_price(i);
             let market_value_quote = get_spot_val_in_quote(
                 base_net,
@@ -38,11 +35,13 @@ pub fn calculate_pool_value(
         }
         //perp
         if active_assets.perps[i] {
-            let (perp_base, perp_quote) = mango_account.perp_accounts[i].get_val(
-                &mango_group.perp_markets[i],
-                &mango_cache.perp_market_cache[i],
-                mango_cache.price_cache[i].price,
-            ).unwrap();
+            let (perp_base, perp_quote) = mango_account.perp_accounts[i]
+                .get_val(
+                    &mango_group.perp_markets[i],
+                    &mango_cache.perp_market_cache[i],
+                    mango_cache.price_cache[i].price,
+                )
+                .unwrap();
             pool_value_quote += perp_base + perp_quote;
         }
     }
@@ -126,4 +125,3 @@ pub fn get_spot_val_in_quote(
         }
     }
 }
-

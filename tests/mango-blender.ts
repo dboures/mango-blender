@@ -195,12 +195,10 @@ describe("mango-blender", () => {
   });
 
   it("can create a liquidator pool, which includes a delegated mangoAccount for liqor", async () => {
-    const accountNum = new anchor.BN(1);
     const tx = await program.rpc.createPool(
       poolNameBytes,
       poolBump,
       poolIouBump,
-      accountNum,
       {
         accounts: {
           pool: poolAddress,
@@ -709,10 +707,8 @@ describe("mango-blender", () => {
 
   });
 
-  // it("will prevent withdraw if too leveraged (perp order)", async () => {
-  // });
-
-  // it("will allow users to withdraw up to max leverage??? (spot)", async () => {
-  // });
+  it("will prevent withdraw if too leveraged (perp order)", async () => {
+    //TODO
+  });
 
 });

@@ -44,7 +44,6 @@ pub fn handler(
     pool_name: String,
     pool_bump: u8,
     iou_mint_bump: u8,
-    account_num: u64, // TODO: can't I just hardcode this to 1 always (1 pool = 1 mangoAccount)?
 ) -> ProgramResult {
     ctx.accounts.pool.pool_name = pool_name;
     ctx.accounts.pool.admin = *ctx.accounts.admin.key;
@@ -60,7 +59,7 @@ pub fn handler(
         ctx.accounts.pool.to_account_info().key,
         ctx.accounts.system_program.key,
         ctx.accounts.admin.key,
-        account_num,
+        1,
     )
     .unwrap();
 
