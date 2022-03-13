@@ -14,22 +14,30 @@ declare_check_assert_macros!(SourceFileId::Processor);
 
 #[derive(Accounts)]
 pub struct WithdrawFromPool<'info> {
-    pub mango_program: UncheckedAccount<'info>, // TODO
+    ///CHECK: checked in mango program
+    pub mango_program: UncheckedAccount<'info>,
     #[account(mut, seeds = [pool.pool_name.as_ref(), pool.admin.as_ref()], bump)]
-    pub pool: Box<Account<'info, Pool>>, // Validation??
-    #[account(mut)] // why tho
-    pub mango_group: UncheckedAccount<'info>, // TODO
-    pub mango_group_signer: UncheckedAccount<'info>, // TODO
+    pub pool: Box<Account<'info, Pool>>,
     #[account(mut)]
-    pub mango_account: UncheckedAccount<'info>, // TODO
+    ///CHECK: checked in mango program
+    pub mango_group: UncheckedAccount<'info>,
+    ///CHECK: checked in mango program
+    pub mango_group_signer: UncheckedAccount<'info>,
+    #[account(mut)]
+    ///CHECK: checked in mango program
+    pub mango_account: AccountInfo<'info>,
     #[account(signer)]
     pub withdrawer: AccountInfo<'info>,
-    pub mango_cache: UncheckedAccount<'info>, // TODO
-    pub root_bank: UncheckedAccount<'info>,   // TODO
+    ///CHECK: checked in mango program
+    pub mango_cache: UncheckedAccount<'info>,
+    ///CHECK: checked in mango program
+    pub root_bank: UncheckedAccount<'info>,
     #[account(mut)]
-    pub node_bank: UncheckedAccount<'info>, // TODO
+    ///CHECK: checked in mango program
+    pub node_bank: UncheckedAccount<'info>,
     #[account(mut)]
-    pub vault: UncheckedAccount<'info>, // TODO
+    ///CHECK: checked in mango program
+    pub vault: UncheckedAccount<'info>,
     #[account(mut, constraint = withdrawer_token_account.owner == withdrawer.key())]
     pub withdrawer_token_account: Box<Account<'info, TokenAccount>>,
     #[account(
@@ -129,7 +137,7 @@ pub fn handler<'a, 'b, 'c, 'info>(
         MangoErrorCode::InsufficientFunds
     )?;
 
-    // TODO: implement "withdrawal fee", probably transfer some iou tokens to the mango manager
+    // FUTURE: add "withdrawal fee", either transfer some iou or QUOTE tokens to the mango manager
 
     token::burn(iou_burn_ctx, burn_amount)?;
 

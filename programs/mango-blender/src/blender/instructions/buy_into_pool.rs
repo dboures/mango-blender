@@ -17,20 +17,27 @@ declare_check_assert_macros!(SourceFileId::Processor);
 
 #[derive(Accounts)]
 pub struct BuyIntoPool<'info> {
-    pub mango_program: UncheckedAccount<'info>, // TODO
+    ///CHECK: checked in mango program
+    pub mango_program: UncheckedAccount<'info>,
     #[account(mut, seeds = [pool.pool_name.as_ref(), pool.admin.as_ref()], bump)]
     pub pool: Account<'info, Pool>, // Validation??
-    pub mango_group: UncheckedAccount<'info>,   // TODO
+    ///CHECK: checked in mango program
+    pub mango_group: UncheckedAccount<'info>,
     #[account(mut)]
-    pub mango_account: UncheckedAccount<'info>, // TODO
+    ///CHECK: checked in mango program
+    pub mango_account: UncheckedAccount<'info>,
     #[account(signer)]
     pub depositor: AccountInfo<'info>,
-    pub mango_cache: UncheckedAccount<'info>, // TODO
-    pub root_bank: UncheckedAccount<'info>,   // TODO
+    ///CHECK: checked in mango program
+    pub mango_cache: UncheckedAccount<'info>,
+    ///CHECK: checked in mango program
+    pub root_bank: UncheckedAccount<'info>,
     #[account(mut)]
-    pub node_bank: UncheckedAccount<'info>, // TODO
+    ///CHECK: checked in mango program
+    pub node_bank: UncheckedAccount<'info>,
     #[account(mut)]
-    pub vault: UncheckedAccount<'info>, // TODO
+    ///CHECK: checked in mango program
+    pub vault: UncheckedAccount<'info>,
     #[account(mut, constraint = depositor_quote_token_account.owner == depositor.key())]
     pub depositor_quote_token_account: Account<'info, TokenAccount>,
     #[account(

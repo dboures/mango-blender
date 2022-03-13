@@ -6,7 +6,7 @@ use solana_program::program::invoke_signed;
 use crate::blender::state::Pool;
 
 #[derive(Accounts)]
-#[instruction(pool_name: String, bump: u8, iou_mint_bump: u8)] // TODO: should be able to set a withdraw fee (in bps probably)
+#[instruction(pool_name: String, bump: u8, iou_mint_bump: u8)] // FUTURE: should be able to set a withdraw fee (in bps probably)
 pub struct CreatePool<'info> {
     #[account(
         init, 
@@ -18,14 +18,17 @@ pub struct CreatePool<'info> {
     pub pool: Account<'info, Pool>,
     #[account(signer)]
     pub admin: AccountInfo<'info>,
-    pub mango_program: UncheckedAccount<'info>, // TODO
+    ///CHECK: checked in mango program
+    pub mango_program: UncheckedAccount<'info>,
     #[account(mut)]
-    pub mango_group: UncheckedAccount<'info>, // TODO
+    ///CHECK: checked in mango program
+    pub mango_group: UncheckedAccount<'info>,
     #[account(mut)]
-    pub mango_account: UncheckedAccount<'info>, // TODO
+    ///CHECK: checked in mango program
+    pub mango_account: UncheckedAccount<'info>,
     #[account(
         init,
-        mint::decimals = 6, // TODO : How many decimals should this be? Need to avoid errors
+        mint::decimals = 6,
         mint::authority = pool,
         mint::freeze_authority = pool,
         seeds = [pool_name.as_ref(), admin.key.as_ref(), b"iou"],

@@ -386,7 +386,7 @@ export async function addSpotMarket(
       maxDepthBps,
       targetPeriodLength,
       nativeMngoPerPeriod,
-      1, //todo had to add this exp argument - not sure what it should be
+      1,
       1,
       0,
       6
