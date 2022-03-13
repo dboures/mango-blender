@@ -344,8 +344,8 @@ export async function addSpotMarket(
     let group = await client.getMangoGroup(groupConfig.publicKey);
     const makerFee = 0.0;
     const takerFee = 0.0005;
-    const baseLotSize = 1;
-    const quoteLotSize = 1;
+    const baseLotSize = 1000000;
+    const quoteLotSize = 100000;
     const maxNumEvents = 256;
     const rate = 0;
     const maxDepthBps = 200;

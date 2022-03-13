@@ -26,6 +26,7 @@ import {
   initPriceOracles,
   keeperRefresh,
   MANGO_PROG_ID,
+  readConfig,
   SERUM_PROG_ID,
   setOraclePrice,
 } from "./setupMango";
@@ -33,6 +34,7 @@ import {
   Config,
   createAccountInstruction,
   getAllMarkets,
+  getMarketByBaseSymbolAndKind,
   MangoClient,
   QUOTE_INDEX,
   uiToNative,
@@ -654,7 +656,6 @@ describe("mango-blender", () => {
       TEST_PROVIDER.connection
     );
     const mangoCache = await group.loadCache(TEST_PROVIDER.connection);
-    const tokenIndex = group.getTokenIndex(tokenA.publicKey);
 
     await keeperRefresh(client, group, mangoCache, rootBanks);
 
@@ -693,22 +694,85 @@ describe("mango-blender", () => {
     });
 
     // check provider QUOTE amount
-    console.log('check provider QUOTE amount')
     await checkProviderTokenAmount(providerQuoteATA, new anchor.BN(4750000));
     // check mangoAccount QUOTE amount
-    console.log('check mangoAccount QUOTE amount')
     await checkMangoAccountTokenAmount(mangoAccountAddress, QUOTE_INDEX, 0.75);
     // check IOU mint supply
-    console.log('check IOU mint supply')
     await checkIouMintSupply(poolIouAddress, new anchor.BN(1500000));
     // check provider IOU amount
-    console.log('check provider IOU amount')
     await checkProviderTokenAmount(providerIouATA, ZERO_BN);
 
   });
 
   it("will prevent withdraw if too leveraged (perp order)", async () => {
-    //TODO
+    const config = readConfig();
+    const groupConfig = config.groups[0];
+    const group = await client.getMangoGroup(mangoGroupPubkey);
+    const rootBanks = await group.loadRootBanks(TEST_PROVIDER.connection);
+    const nodeBanks = await rootBanks[QUOTE_INDEX]?.loadNodeBanks(
+      TEST_PROVIDER.connection
+    );
+    const mangoCache = await group.loadCache(TEST_PROVIDER.connection);
+    const perpMarketConfig = getMarketByBaseSymbolAndKind(
+      groupConfig,
+      'AAAA',
+      'perp',
+    );
+    const perpMarket = await group.loadPerpMarket(
+      TEST_PROVIDER.connection,
+      perpMarketConfig.marketIndex,
+      perpMarketConfig.baseDecimals,
+      perpMarketConfig.quoteDecimals,
+    );
+
+    const mangoAccount = await client.getMangoAccount(
+      mangoAccountAddress,
+      SERUM_PROG_ID
+    );
+    const asksInfo = await TEST_PROVIDER.connection.getAccountInfo(perpMarket.asks);
+    const tx = await client.placePerpOrder(group, mangoAccount, group.mangoCache, perpMarket, TEST_PAYER as unknown as Account, "buy", 0.5, 23.5, "limit", 71, asksInfo);
+
+    await keeperRefresh(client, group, mangoCache, rootBanks);
+
+    // assert health
+    const reloaded = await mangoAccount.reload(TEST_PROVIDER.connection);
+    const health = await reloaded.getHealthRatio(group, mangoCache, 'Maint');
+    assert.ok(health.toNumber() < 6.05);
+
+    // user 2 tries to withdraw and gets denied
+    const openOrdersKeys = mangoAccount.getOpenOrdersKeysInBasket();
+    const remainingAccounts = openOrdersKeys.map((key) => {
+      return { pubkey: key, isWritable: false, isSigner: false };
+    });
+    await assert.rejects(
+      async () => {
+        const txn = await program.rpc.withdrawFromPool(new anchor.BN(500000), {
+          accounts: {
+            mangoProgram: MANGO_PROG_ID,
+            pool: poolAddress,
+            mangoGroup: mangoGroupPubkey,
+            mangoGroupSigner: group.signerKey,
+            mangoAccount: mangoAccountAddress,
+            withdrawer: OTHER_PROVIDER.wallet.publicKey,
+            withdrawerTokenAccount: otherQuoteATA,
+            mangoCache: group.mangoCache,
+            rootBank: rootBanks[QUOTE_INDEX]?.publicKey,
+            nodeBank: nodeBanks[0].publicKey,
+            vault: nodeBanks[0].vault,
+            poolIouMint: poolIouAddress,
+            withdrawerIouTokenAccount: otherIouATA,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          },
+          remainingAccounts,
+          signers: [OTHER_PAYER],
+        });
+      },
+      (err) => {
+        console.log(err.logs);
+        assert.ok(err.logs.includes("Program mv3ekLzLbnVPNxjSKvqBpU3ZeZXPQdEC3bp5MDEBG68 failed: custom program error: 0x7")); // Mango Insufficient Funds error (within withdraw)
+        return true;
+      }
+    );
   });
 
 });
