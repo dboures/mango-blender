@@ -1,5 +1,8 @@
 [programs.localnet]
-mango_blender = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
+mango_blender = "HzJMW7y12YSPDZMWNeqKDR51QnHwhF3TB96CZsPhpNoB"
+
+[programs.devnet]
+mango_blender = "HzJMW7y12YSPDZMWNeqKDR51QnHwhF3TB96CZsPhpNoB"
 
 [registry]
 url = "https://anchor.projectserum.com"
