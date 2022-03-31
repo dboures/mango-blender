@@ -4,7 +4,7 @@ use blender::instructions::*;
 mod blender;
 mod helpers;
 
-declare_id!("HzJMW7y12YSPDZMWNeqKDR51QnHwhF3TB96CZsPhpNoB");
+declare_id!("3XGFKm9rzDUCt3VHRDbrMy9kejY9sT1RDJfKHM62REqg");
 
 #[program]
 pub mod mango_blender {
@@ -15,12 +15,14 @@ pub mod mango_blender {
         pool_name: String,
         pool_bump: u8,
         iou_mint_bump: u8,
+        fee_basis: u8
     ) -> ProgramResult {
         blender::instructions::create_pool::handler(
             ctx,
             pool_name,
             pool_bump,
             iou_mint_bump,
+            fee_basis
         )
     }
 

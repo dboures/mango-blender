@@ -6,7 +6,8 @@ use solana_program::program::invoke_signed;
 use crate::blender::state::Pool;
 
 #[derive(Accounts)]
-#[instruction(pool_name: String, bump: u8, iou_mint_bump: u8)] // FUTURE: should be able to set a withdraw fee (in bps probably)
+#[instruction(pool_name: String, bump: u8, iou_mint_bump: u8, fee_basis: u8)] // FUTURE: should be able to set a withdraw fee (in bps probably) // gm, from @STACCart // hey btw we can code the referrin mango account per perp order eh?
+
 pub struct CreatePool<'info> {
     #[account(
         init, 
@@ -47,7 +48,9 @@ pub fn handler(
     pool_name: String,
     pool_bump: u8,
     iou_mint_bump: u8,
+    fee_basis: u8
 ) -> ProgramResult {
+    ctx.accounts.pool.fee_basis = fee_basis;
     ctx.accounts.pool.pool_name = pool_name;
     ctx.accounts.pool.admin = *ctx.accounts.admin.key;
     ctx.accounts.pool.pool_bump = pool_bump;
