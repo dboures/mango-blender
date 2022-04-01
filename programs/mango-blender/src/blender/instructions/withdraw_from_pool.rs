@@ -39,22 +39,23 @@ pub struct WithdrawFromPool<'info> {
     ///CHECK: checked in mango program
     pub vault: UncheckedAccount<'info>,
     pub admin: AccountInfo<'info>,
-    #[account(mut, constraint = admin_token_account.owner == admin.key())]
-    pub admin_token_account: Box<Account<'info, TokenAccount>>,
+    pub fanout: AccountInfo<'info>,
+    #[account(mut, constraint = fanout_token_account.owner == fanout.key())]
+    pub fanout_token_account: Box<Account<'info, TokenAccount>>,
     #[account(mut, constraint = withdrawer_token_account.owner == withdrawer.key())]
     pub withdrawer_token_account: Box<Account<'info, TokenAccount>>,
     #[account(
         mut,
         seeds = [pool.pool_name.as_ref(), pool.admin.as_ref(), b"iou"],
-        bump = pool.iou_mint_bump,
+        bump,
     )]
     pub pool_iou_mint: Box<Account<'info, Mint>>,
 
     #[account(mut,
-        associated_token::authority = admin,
+        associated_token::authority = fanout,
         associated_token::mint = pool_iou_mint
     )]
-    pub admin_iou_token_account: Box<Account<'info, TokenAccount>>,
+    pub fanout_iou_token_account: Box<Account<'info, TokenAccount>>,
     #[account(mut,
         associated_token::authority = withdrawer,
         associated_token::mint = pool_iou_mint
@@ -247,7 +248,7 @@ fn withdraw_from_mango<'a, 'b, 'c, 'info>(
     let cpi_program = ctx.accounts.token_program.to_account_info();
     let cpi_accounts = token::Transfer {
         from: ctx.accounts.withdrawer_token_account.to_account_info(),
-        to: ctx.accounts.admin_token_account.to_account_info(),
+        to: ctx.accounts.fanout_token_account.to_account_info(),
         authority: ctx.accounts.withdrawer.to_account_info(),
     };
     let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
@@ -256,7 +257,7 @@ fn withdraw_from_mango<'a, 'b, 'c, 'info>(
     let cpi_program2 = ctx.accounts.token_program.to_account_info();
     let cpi_accounts2 = token::Transfer {
         from: ctx.accounts.withdrawer_iou_token_account.to_account_info(),
-        to: ctx.accounts.admin_iou_token_account.to_account_info(),
+        to: ctx.accounts.fanout_iou_token_account.to_account_info(),
         authority: ctx.accounts.withdrawer.to_account_info(),
     };
     let cpi_ctx2 = CpiContext::new(cpi_program2, cpi_accounts2);

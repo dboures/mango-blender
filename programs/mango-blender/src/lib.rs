@@ -4,7 +4,7 @@ use blender::instructions::*;
 mod blender;
 mod helpers;
 
-declare_id!("3XGFKm9rzDUCt3VHRDbrMy9kejY9sT1RDJfKHM62REqg");
+declare_id!("6iwLfHKbjvrmQ9jSWAvVu1C8zdWReX2s8XX9yFmvM6p5");
 
 #[program]
 pub mod mango_blender {

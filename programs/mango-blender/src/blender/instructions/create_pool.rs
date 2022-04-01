@@ -17,7 +17,7 @@ pub struct CreatePool<'info> {
         space = 8 + 32 + 32 + 32 + 1)]
     // ??? + admin Pkey + iou pkey + string + bump
     pub pool: Account<'info, Pool>,
-    #[account(signer)]
+    #[account(mut, signer)]
     pub admin: AccountInfo<'info>,
     ///CHECK: checked in mango program
     pub mango_program: UncheckedAccount<'info>,
@@ -33,7 +33,7 @@ pub struct CreatePool<'info> {
         mint::authority = pool,
         mint::freeze_authority = pool,
         seeds = [pool_name.as_ref(), admin.key.as_ref(), b"iou"],
-        bump = iou_mint_bump,
+        bump,
         payer = admin
     )]
     pub pool_iou_mint: Account<'info, Mint>,

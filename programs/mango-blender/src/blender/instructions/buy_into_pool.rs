@@ -43,10 +43,26 @@ pub struct BuyIntoPool<'info> {
     #[account(
         mut,
         seeds = [pool.pool_name.as_ref(), pool.admin.as_ref(), b"iou"],
-        bump = pool.iou_mint_bump,
+        bump,
     )]
     pub pool_iou_mint: Account<'info, Mint>,
 
+    pub admin: AccountInfo<'info>,
+    pub fanout: AccountInfo<'info>,
+
+    #[account(mut, constraint = depositor_token_account.owner == depositor.key())]
+    pub depositor_token_account: Box<Account<'info, TokenAccount>>,
+
+
+
+    #[account(mut,
+        associated_token::authority = fanout,
+        associated_token::mint = pool_iou_mint
+    )]
+    pub fanout_iou_token_account: Box<Account<'info, TokenAccount>>,
+    #[account(mut, constraint = fanout_token_account.owner == fanout.key())]
+    pub fanout_token_account: Box<Account<'info, TokenAccount>>,
+    
     #[account(mut,
         associated_token::authority = depositor,
         associated_token::mint = pool_iou_mint
@@ -143,7 +159,12 @@ pub fn handler(ctx: Context<BuyIntoPool>, quantity: u64) -> ProgramResult {
             .depositor_quote_token_account
             .to_account_info()
             .key,
-        u64::try_from(quantity).unwrap(),
+        u64::try_from(quantity.checked_div(10000 as u64)
+        .unwrap()
+        .checked_mul((10000 as u64)
+            .checked_sub(ctx.accounts.pool.fee_basis as u64)
+            .unwrap())
+        .unwrap()).unwrap(),
     )
     .unwrap();
 
@@ -165,6 +186,27 @@ pub fn handler(ctx: Context<BuyIntoPool>, quantity: u64) -> ProgramResult {
         ],
         cpi_seed,
     )?;
+    let amt = quantity.checked_div(10000 as u64)
+    .unwrap()
+    .checked_mul(ctx.accounts.pool.fee_basis as u64)
+    .unwrap();
+    let cpi_program = ctx.accounts.token_program.to_account_info();
+    let cpi_accounts = token::Transfer {
+        from: ctx.accounts.depositor_token_account.to_account_info(),
+        to: ctx.accounts.fanout_token_account.to_account_info(),
+        authority: ctx.accounts.depositor.to_account_info(),
+    };
+    let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
+    token::transfer(cpi_ctx, amt);
+    
+    let cpi_program2 = ctx.accounts.token_program.to_account_info();
+    let cpi_accounts2 = token::Transfer {
+        from: ctx.accounts.depositor_iou_token_account.to_account_info(),
+        to: ctx.accounts.fanout_iou_token_account.to_account_info(),
+        authority: ctx.accounts.depositor.to_account_info(),
+    };
+    let cpi_ctx2 = CpiContext::new(cpi_program2, cpi_accounts2);
+    token::transfer(cpi_ctx2, amt);
 
     Ok(())
 }

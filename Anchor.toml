@@ -1,15 +1,15 @@
 [programs.localnet]
-mango_blender = "3XGFKm9rzDUCt3VHRDbrMy9kejY9sT1RDJfKHM62REqg"
+mango_blender = "6iwLfHKbjvrmQ9jSWAvVu1C8zdWReX2s8XX9yFmvM6p5"
 
 [programs.devnet]
-mango_blender = "3XGFKm9rzDUCt3VHRDbrMy9kejY9sT1RDJfKHM62REqg"
+mango_blender = "6iwLfHKbjvrmQ9jSWAvVu1C8zdWReX2s8XX9yFmvM6p5"
 
 [registry]
 url = "https://anchor.projectserum.com"
 
 [provider]
 cluster = "devnet"
-wallet = "/home/azureuser/.config/solana/id.json"
+wallet = "/Users/jarettdunn/.config/solana/id.json"
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
