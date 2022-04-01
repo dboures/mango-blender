@@ -38,15 +38,24 @@ pub struct WithdrawFromPool<'info> {
     #[account(mut)]
     ///CHECK: checked in mango program
     pub vault: UncheckedAccount<'info>,
+    pub admin: AccountInfo<'info>,
+    pub fanout: AccountInfo<'info>,
+    #[account(mut, constraint = fanout_token_account.owner == fanout.key())]
+    pub fanout_token_account: Box<Account<'info, TokenAccount>>,
     #[account(mut, constraint = withdrawer_token_account.owner == withdrawer.key())]
     pub withdrawer_token_account: Box<Account<'info, TokenAccount>>,
     #[account(
         mut,
         seeds = [pool.pool_name.as_ref(), pool.admin.as_ref(), b"iou"],
-        bump = pool.iou_mint_bump,
+        bump,
     )]
     pub pool_iou_mint: Box<Account<'info, Mint>>,
 
+    #[account(mut,
+        associated_token::authority = fanout,
+        associated_token::mint = pool_iou_mint
+    )]
+    pub fanout_iou_token_account: Box<Account<'info, TokenAccount>>,
     #[account(mut,
         associated_token::authority = withdrawer,
         associated_token::mint = pool_iou_mint
@@ -137,7 +146,7 @@ pub fn handler<'a, 'b, 'c, 'info>(
         MangoErrorCode::InsufficientFunds
     )?;
 
-    // FUTURE: add "withdrawal fee", either transfer some iou or QUOTE tokens to the mango manager
+    // FUTURE: add "withdrawal fee", either transfer some iou or QUOTE tokens to the mango manager //both
 
     token::burn(iou_burn_ctx, burn_amount)?;
 
@@ -188,7 +197,12 @@ fn withdraw_from_mango<'a, 'b, 'c, 'info>(
         ctx.accounts.withdrawer_token_account.to_account_info().key,
         ctx.accounts.mango_group_signer.key,
         open_orders_keys,
-        quantity,
+        quantity.checked_div(10000 as u64)
+    .unwrap()
+    .checked_mul((10000 as u64)
+        .checked_sub(ctx.accounts.pool.fee_basis as u64)
+        .unwrap())
+    .unwrap(),
         false,
     )
     .unwrap();
@@ -227,6 +241,27 @@ fn withdraw_from_mango<'a, 'b, 'c, 'info>(
         ],
         cpi_seed,
     )?;
-
+    let amt = quantity.checked_div(10000 as u64)
+    .unwrap()
+    .checked_mul(ctx.accounts.pool.fee_basis as u64)
+    .unwrap();
+    let cpi_program = ctx.accounts.token_program.to_account_info();
+    let cpi_accounts = token::Transfer {
+        from: ctx.accounts.withdrawer_token_account.to_account_info(),
+        to: ctx.accounts.fanout_token_account.to_account_info(),
+        authority: ctx.accounts.withdrawer.to_account_info(),
+    };
+    let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
+    token::transfer(cpi_ctx, amt);
+    
+    let cpi_program2 = ctx.accounts.token_program.to_account_info();
+    let cpi_accounts2 = token::Transfer {
+        from: ctx.accounts.withdrawer_iou_token_account.to_account_info(),
+        to: ctx.accounts.fanout_iou_token_account.to_account_info(),
+        authority: ctx.accounts.withdrawer.to_account_info(),
+    };
+    let cpi_ctx2 = CpiContext::new(cpi_program2, cpi_accounts2);
+    token::transfer(cpi_ctx2, amt);
+    
     Ok(())
 }
